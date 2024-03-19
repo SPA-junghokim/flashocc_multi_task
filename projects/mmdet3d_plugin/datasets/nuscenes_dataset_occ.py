@@ -63,6 +63,7 @@ class NuScenesDatasetOccpancy(NuScenesDataset):
         input_dict['occ_gt_path'] = self.data_infos[index]['occ_path']
         
         if self.segmentation:
+            info = self.data_infos[index]
             input_dict.update(dict(
                     location=info['log']['location'],
                 ))

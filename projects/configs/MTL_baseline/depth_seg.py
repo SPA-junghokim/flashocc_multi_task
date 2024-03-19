@@ -132,8 +132,8 @@ train_pipeline = [
     dict(type='PointToMultiViewDepth', downsample=1, grid_config=grid_config),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
-        type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera', 'gt_seg_mask'])
+        type='Collect3D', keys=['img_inputs', 'gt_depth',
+                                'gt_seg_mask'])
 ]
 
 test_pipeline = [
