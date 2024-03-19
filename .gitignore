@@ -21,3 +21,4 @@ ppl.cv
 .vscode
 
 train.sh
+train*.sh
