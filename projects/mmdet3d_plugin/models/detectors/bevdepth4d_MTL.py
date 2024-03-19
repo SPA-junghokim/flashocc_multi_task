@@ -180,7 +180,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         bev_feat_list = []
         depth_list = []
         key_frame = True  # back propagation for key frame only
-        breakpoint()
+
         for img, sensor2keyego, ego2global, intrin, post_rot, post_tran in zip(
                 imgs, sensor2keyegos, ego2globals, intrins, post_rots, post_trans):
             if key_frame or self.with_prev:

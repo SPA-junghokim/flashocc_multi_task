@@ -128,6 +128,5 @@ class GenSegGT(object):
             
             # cv2.imwrite(f'deb_map{random.randint(0,100000)}.png', canvas)
             cv2.imwrite(f'deb_map.png', canvas)
-            breakpoint()
 
         return input_dict

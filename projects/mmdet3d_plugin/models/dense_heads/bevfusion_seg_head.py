@@ -166,7 +166,6 @@ class BEVSegmentationHead(nn.Module):
                     continue
                 canvas += target[0,i,:,:,None].detach().cpu().numpy().repeat(3, axis=2) * (255//len(self.classes)) * i
             cv2.imwrite(f'seg_visualize_temp/deb_map{random.randint(0,100000)}.png', canvas)
-            breakpoint()
             
         for index, name in enumerate(self.classes):
             if self.loss_type == "xent":

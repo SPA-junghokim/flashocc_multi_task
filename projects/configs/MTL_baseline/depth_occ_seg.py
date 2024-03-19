@@ -46,8 +46,15 @@ voxel_size = [0.1, 0.1, 0.2]
 
 numC_Trans = 64
 
+multi_adj_frame_id_cfg = (1, 1, 1)
+
+if len(range(*multi_adj_frame_id_cfg)) == 0:
+    numC_Trans_cat = 0
+else:
+    numC_Trans_cat = numC_Trans
+
 model = dict(
-    type='BEVDetOCC',
+    type='BEVDepth4D_MTL',
     img_backbone=dict(
         type='ResNet',
         depth=50,
@@ -80,12 +87,28 @@ model = dict(
         ),
     img_bev_encoder_backbone=dict(
         type='CustomResNet',
-        numC_input=numC_Trans,
+        numC_input=numC_Trans + numC_Trans_cat,
         num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
     img_bev_encoder_neck=dict(
         type='FPN_LSS',
         in_channels=numC_Trans * 8 + numC_Trans * 2,
         out_channels=256),
+    occ_head=dict(
+        type='BEVOCCHead2D',
+        in_dim=256,
+        out_dim=256,
+        Dz=16,
+        use_mask=True,
+        num_classes=18,
+        use_predicter=True,
+        class_wise=False,
+        loss_occ=dict(
+            type='CrossEntropyLoss',
+            use_sigmoid=False,
+            ignore_index=255,
+            loss_weight=1.0
+        ),
+    ),
     
     seg_head=dict(
         type='BEVSegmentationHead',
@@ -121,7 +144,7 @@ train_pipeline = [
         bda_aug_conf=bda_aug_conf,
         classes=class_names,
         is_train=True),
-    # dict(type='LoadOccGTFromFile'),
+    dict(type='LoadOccGTFromFile'),
     dict(
         type='LoadPointsFromFile',
         coord_type='LIDAR',
@@ -173,7 +196,6 @@ input_modality = dict(
     use_external=False)
 
 share_data_config = dict(
-    
     type=dataset_type,
     data_root=data_root,
     classes=class_names,

@@ -51,7 +51,6 @@ class BEVDet(CenterPoint):
         Returns:
             x: (B, C', 2*Dy, 2*Dx)
         """
-        breakpoint()
         x = self.img_bev_encoder_backbone(x)
         x = self.img_bev_encoder_neck(x)
         if type(x) in [list, tuple]:
