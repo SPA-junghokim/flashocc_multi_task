@@ -140,7 +140,6 @@ class BEVSegmentationHead(nn.Module):
         self.show = show
         
     def forward(self, x):
-        breakpoint()
         # x = self.transform(x).permute(0, 3, 2, 1)
         x = self.transform(x).permute(0, 1, 3, 2)
         if self.seperate_decoder:
@@ -169,9 +168,8 @@ class BEVSegmentationHead(nn.Module):
                     continue
                 canvas += target[0,i,:,:,None].detach().cpu().numpy().repeat(3, axis=2) * (255//len(self.classes)) * i
             cv2.imwrite(f'seg_visualize_temp/deb_map{random.randint(0,100000)}.png', canvas)
-        
-        target = target.flip(1)
-        breakpoint()
+
+        target = target.flip(-1)
         for index, name in enumerate(self.classes):
             if self.loss_type == "xent":
                 loss_ = sigmoid_xent_loss(x[:, index], target[:, index]) * torch.tensor(self.loss_weight[index])
