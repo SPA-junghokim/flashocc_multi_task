@@ -48,6 +48,8 @@ else:
 
 model = dict(
     type='BEVDepth4D_MTL',
+    align_after_view_transfromation=False,
+    num_adj=len(range(*multi_adj_frame_id_cfg)),
     img_backbone=dict(
         type='ResNet',
         depth=50,
@@ -222,7 +224,7 @@ lr_config = dict(
     warmup_iters=200,
     warmup_ratio=0.001,
     step=[24, ])
-runner = dict(type='EpochBasedRunner', max_epochs=24)
+runner = dict(type='EpochBasedRunner', max_epochs=2)
 
 custom_hooks = [
     dict(

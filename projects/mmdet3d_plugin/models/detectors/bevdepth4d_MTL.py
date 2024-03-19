@@ -147,7 +147,9 @@ class BEVDepth4D_MTL(BEVDepth4D):
                     img_metas,
                     img=None,
                     rescale=False,
-                    voxel_semantics=None, 
+                    voxel_semantics=None,
+                    mask_lidar=None,
+                    mask_camera=None,
                     gt_seg_mask=None,
                     **kwargs):
         # img_feats: List[(B, C, Dz, Dy, Dx)/(B, C, Dy, Dx) , ]
@@ -167,7 +169,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         if self.seg_head is not None:
             seg_out = self.seg_bev_head(seg_feat[0])
             
-        return bbox_out, occ_out, gt_voxel_bev, seg_out, gt_seg_mask
+        return bbox_out, occ_out, voxel_semantics, mask_lidar, mask_camera, seg_out, gt_seg_mask
 
     def simple_test_occ(self, img_feats, img_metas=None):
         """

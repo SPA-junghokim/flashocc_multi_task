@@ -26,6 +26,8 @@ import copy
 import cv2
 import os
 
+from ..evaluation.occ_metrics import Metric_mIoU, Metric_FScore
+
 def IOU (intputs, targets, eps=1e-6):
     intputs = intputs.bool()
     targets = targets.bool()
@@ -70,7 +72,7 @@ def single_gpu_test(model,
     for i, data in enumerate(data_loader):
         with torch.no_grad():
             # result = model(return_loss=False, rescale=True, **data)
-            result, voxel_out, gt_voxel_bev, seg_out, gt_seg_mask =\
+            result, voxel_out, voxel_semantics, mask_lidar, mask_camera, seg_out, gt_seg_mask =\
                 model(return_loss=False, return_vox_results=True, **data) #return_vox_results=True,
             # calculate mIOU
             if voxel_out is not None:
@@ -227,18 +229,25 @@ def multi_gpu_test(model: nn.Module,
     for i, data in enumerate(data_loader):
         
         with torch.no_grad():
-            result, voxel_out, gt_voxel_bev, seg_out, gt_seg_mask =\
+            result, voxel_out, gt_semantics, mask_lidar, mask_camera, seg_out, gt_seg_mask =\
                 model(return_loss=False, return_vox_results=True, **data) #return_vox_results=True,
             # calculate mIOU
             if voxel_out is not None:
-                if len(voxel_out.shape) == len(gt_voxel_bev[0].shape): #[B, X, Y, Z]
-                    voxel_out = torch.round(voxel_out).int()
-                else:
-                    voxel_out = torch.argmax(voxel_out, dim=1) #[B, C, X, Y, Z]
+                # if len(voxel_out.shape) == len(gt_voxel_bev[0].shape): #[B, X, Y, Z]
+                #     voxel_out = torch.round(voxel_out).int()
+                # else:
+                #     voxel_out = torch.argmax(voxel_out, dim=1) #[B, C, X, Y, Z]
                 for count in range(len(data["img_metas"])):
-                    CalMeanIou_vox._after_step(
-                        voxel_out[count].flatten(),
-                        gt_voxel_bev[count].flatten())
+                    
+                    self.occ_eval_metrics.add_batch(
+                        voxel_out[count],   # (Dx, Dy, Dz)
+                        gt_semantics[count],   # (Dx, Dy, Dz)
+                        mask_lidar[count],     # (Dx, Dy, Dz)
+                        mask_camera[count]     # (Dx, Dy, Dz)
+                    )
+                    # CalMeanIou_vox._after_step(
+                    #     voxel_out[count].flatten(),
+                    #     gt_voxel_bev[count].flatten())
             # use out_dir
             if seg_out is not None:
                 thresholds = torch.tensor([0.20, 0.25, 0.30, 0.35, 0.36, 0.37, 0.38, 0.39, 0.4, 0.41, 0.42, 0.43, 0.44, 0.45, 0.5, 0.55, 0.6, 0.65])
@@ -340,9 +349,14 @@ def multi_gpu_test(model: nn.Module,
                 batch_size_all = len(dataset) - prog_bar.completed
             for _ in range(batch_size_all):
                 prog_bar.update()
-
+                
+    # occ_eval_metrics = Metric_mIoU(
+    #         num_classes=18,
+    #         use_lidar_mask=False,
+    #         use_image_mask=True)
+    
     if voxel_out is not None:
-        CalMeanIou_vox._after_epoch()
+        print(occ_eval_metrics.count_miou())
     
     if seg_out is not None:
         iou = total_intersect / total_union * 100

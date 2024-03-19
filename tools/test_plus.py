@@ -1,22 +1,37 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import argparse
-import mmcv
 import os
-import torch
 import warnings
+
+import mmcv
+import torch
 from mmcv import Config, DictAction
 from mmcv.cnn import fuse_conv_bn
 from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 from mmcv.runner import (get_dist_info, init_dist, load_checkpoint,
                          wrap_fp16_model)
 
+import mmdet
 # from mmdet3d.apis import single_gpu_test
 from mmdet3d.datasets import build_dataloader, build_dataset
 from mmdet3d.models import build_model
 from mmdet.apis import set_random_seed
 from mmdet.datasets import replace_ImageToTensor
+from projects.mmdet3d_plugin.core.hook.MeanIOUHook import MeanIoU, multi_gpu_test, single_gpu_test
 
-from mmdet3d.core.hook.MeanIOUHook import MeanIoU, multi_gpu_test, single_gpu_test
+if mmdet.__version__ > '2.23.0':
+    # If mmdet version > 2.23.0, setup_multi_processes would be imported and
+    # used from mmdet instead of mmdet3d.
+    from mmdet.utils import setup_multi_processes
+else:
+    from mmdet3d.utils import setup_multi_processes
+
+try:
+    # If mmdet version > 2.23.0, compat_cfg would be imported and
+    # used from mmdet instead of mmdet3d.
+    from mmdet.utils import compat_cfg
+except ImportError:
+    from mmdet3d.utils import compat_cfg
 
 
 def parse_args():
@@ -30,6 +45,18 @@ def parse_args():
         action='store_true',
         help='Whether to fuse conv and bn, this will slightly increase'
         'the inference speed')
+    parser.add_argument(
+        '--gpu-ids',
+        type=int,
+        nargs='+',
+        help='(Deprecated, please use --gpu-id) ids of gpus to use '
+        '(only applicable to non-distributed training)')
+    parser.add_argument(
+        '--gpu-id',
+        type=int,
+        default=0,
+        help='id of gpu to use '
+        '(only applicable to non-distributed testing)')
     parser.add_argument(
         '--format-only',
         action='store_true',
@@ -49,6 +76,10 @@ def parse_args():
         '--gpu-collect',
         action='store_true',
         help='whether to use gpu to collect results.')
+    parser.add_argument(
+        '--no-aavt',
+        action='store_true',
+        help='Do not align after view transformer.')
     parser.add_argument(
         '--tmpdir',
         help='tmp directory used for collecting results from multiple '
@@ -119,10 +150,15 @@ def main():
     cfg = Config.fromfile(args.config)
     if args.cfg_options is not None:
         cfg.merge_from_dict(args.cfg_options)
+    cfg = compat_cfg(cfg)
+
+    # set multi-process settings
+    setup_multi_processes(cfg)
+    
     # import modules from string list.
-    if cfg.get('custom_imports', None):
-        from mmcv.utils import import_modules_from_strings
-        import_modules_from_strings(**cfg['custom_imports'])
+    # if cfg.get('custom_imports', None):
+    #     from mmcv.utils import import_modules_from_strings
+    #     import_modules_from_strings(**cfg['custom_imports'])
 
     # import modules from plguin/xx, registry will be updated
     if hasattr(cfg, 'plugin'):
@@ -153,6 +189,26 @@ def main():
         torch.backends.cudnn.benchmark = True
 
     cfg.model.pretrained = None
+
+    if args.gpu_ids is not None:
+        cfg.gpu_ids = args.gpu_ids[0:1]
+        warnings.warn('`--gpu-ids` is deprecated, please use `--gpu-id`. '
+                      'Because we only support single GPU mode in '
+                      'non-distributed testing. Use the first GPU '
+                      'in `gpu_ids` now.')
+    else:
+        cfg.gpu_ids = [args.gpu_id]
+
+    # init distributed env first, since logger depends on the dist info.
+    if args.launcher == 'none':
+        distributed = False
+    else:
+        distributed = True
+        init_dist(args.launcher, **cfg.dist_params)
+
+    test_dataloader_default_args = dict(
+        samples_per_gpu=1, workers_per_gpu=2, dist=distributed, shuffle=False)
+
     # in case the test dataset is concatenated
     samples_per_gpu = 1
     if isinstance(cfg.data.test, dict):
@@ -171,12 +227,10 @@ def main():
             for ds_cfg in cfg.data.test:
                 ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
 
-    # init distributed env first, since logger depends on the dist info.
-    if args.launcher == 'none':
-        distributed = False
-    else:
-        distributed = True
-        init_dist(args.launcher, **cfg.dist_params)
+    test_loader_cfg = {
+        **test_dataloader_default_args,
+        **cfg.data.get('test_dataloader', {})
+    }
 
     # set random seeds
     if args.seed is not None:
@@ -184,14 +238,12 @@ def main():
 
     # build the dataloader
     dataset = build_dataset(cfg.data.test)
-    data_loader = build_dataloader(
-        dataset,
-        samples_per_gpu=samples_per_gpu,
-        workers_per_gpu=cfg.data.workers_per_gpu,
-        dist=distributed,
-        shuffle=False)
+    data_loader = build_dataloader(dataset, **test_loader_cfg)
 
     # build the model and load checkpoint
+    if not args.no_aavt:
+        if '4D' in cfg.model.type:
+            cfg.model.align_after_view_transfromation=True
     cfg.model.train_cfg = None
     model = build_model(cfg.model, test_cfg=cfg.get('test_cfg'))
     fp16_cfg = cfg.get('fp16', None)
@@ -213,16 +265,18 @@ def main():
         # segmentation dataset has `PALETTE` attribute
         model.PALETTE = dataset.PALETTE
 
+    class_names = ['others','barrier','bicycle','bus','car','construction_vehicle','motorcycle','pedestrian','traffic_cone','trailer','truck','driveable_surface','other_flat','sidewalk','terrain','manmade','vegetation']
+    
     if not distributed:
         model = MMDataParallel(model, device_ids=[0])
-        outputs = single_gpu_test(model, data_loader, args.show, args.show_dir, class_names=cfg.class_names_seg16)
+        outputs = single_gpu_test(model, data_loader, args.show, args.show_dir, class_names=class_names)
     else:
         model = MMDistributedDataParallel(
             model.cuda(),
             device_ids=[torch.cuda.current_device()],
             broadcast_buffers=False)
         outputs = multi_gpu_test(model, data_loader, args.tmpdir,
-                                 args.gpu_collect, cfg.class_names_seg16)
+                                 args.gpu_collect, class_names)
 
     rank, _ = get_dist_info()
     if rank == 0:
