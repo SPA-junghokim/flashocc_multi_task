@@ -48,7 +48,6 @@ else:
 
 model = dict(
     type='BEVDepth4D_MTL',
-    num_adj=len(range(*multi_adj_frame_id_cfg)),
     img_backbone=dict(
         type='ResNet',
         depth=50,
