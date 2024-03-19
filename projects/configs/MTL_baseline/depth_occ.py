@@ -155,6 +155,7 @@ test_pipeline = [
         load_dim=5,
         use_dim=5,
         file_client_args=file_client_args),
+    dict(type='LoadOccGTFromFile'),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=(1333, 800),
@@ -165,7 +166,8 @@ test_pipeline = [
                 type='DefaultFormatBundle3D',
                 class_names=class_names,
                 with_label=False),
-            dict(type='Collect3D', keys=['points', 'img_inputs'])
+            dict(type='Collect3D', keys=['points', 'img_inputs', 'voxel_semantics',
+                                'mask_lidar', 'mask_camera'])
         ])
 ]
 
@@ -189,14 +191,16 @@ share_data_config = dict(
 
 test_data_config = dict(
     pipeline=test_pipeline,
-    ann_file=data_root + 'bevdetv2-nuscenes_infos_val.pkl')
+    ann_file=data_root + 'data10_seg.pkl')
+    # ann_file=data_root + 'bevdetv2-nuscenes_infos_val_seg.pkl')
 
 data = dict(
     samples_per_gpu=4,
     workers_per_gpu=4,
     train=dict(
         data_root=data_root,
-        ann_file=data_root + 'bevdetv2-nuscenes_infos_train.pkl',
+        # ann_file=data_root + 'bevdetv2-nuscenes_infos_train_seg.pkl',
+        ann_file=data_root + 'data10_seg.pkl',
         pipeline=train_pipeline,
         classes=class_names,
         test_mode=False,
