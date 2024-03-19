@@ -246,8 +246,8 @@ def multi_gpu_test(model: nn.Module,
                     occ_eval_metrics.add_batch(
                         voxel_out[count],   # (Dx, Dy, Dz)
                         gt_semantics[0][count].cpu().numpy().astype(np.uint8),   # (Dx, Dy, Dz)
-                        mask_lidar[0][count].cpu().numpy().astype(np.uint8),     # (Dx, Dy, Dz)
-                        mask_camera[0][count].cpu().numpy().astype(np.uint8)     # (Dx, Dy, Dz)
+                        mask_lidar[0][count].cpu().numpy().astype(np.bool),     # (Dx, Dy, Dz)
+                        mask_camera[0][count].cpu().numpy().astype(np.bool)     # (Dx, Dy, Dz)
                     )
                     # CalMeanIou_vox._after_step(
                     #     voxel_out[count].flatten(),
