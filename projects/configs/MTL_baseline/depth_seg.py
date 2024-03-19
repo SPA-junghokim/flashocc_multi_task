@@ -74,7 +74,7 @@ model = dict(
         out_channels=numC_Trans,
         sid=False,
         collapse_z=True,
-        downsample=16
+        downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
         ),
     img_bev_encoder_backbone=dict(
@@ -95,22 +95,6 @@ model = dict(
         loss_weight=[40.0, 40.0, 40.0, 40.0, 40.0, 40.0],
         ),  
     
-    occ_head=dict(
-        type='BEVOCCHead2D',
-        in_dim=256,
-        out_dim=256,
-        Dz=16,
-        use_mask=True,
-        num_classes=18,
-        use_predicter=True,
-        class_wise=False,
-        loss_occ=dict(
-            type='CrossEntropyLoss',
-            use_sigmoid=False,
-            ignore_index=255,
-            loss_weight=1.0
-        ),
-    )
 )
 
 # Data

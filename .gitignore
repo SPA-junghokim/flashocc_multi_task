@@ -22,5 +22,9 @@ ppl.cv
 .vscode
 
 train.sh
+<<<<<<< HEAD
 lidarseg/
 panoptic/
+=======
+train*.sh
+>>>>>>> e07822b6b97173fe78aedc1f560fb74368017ea4
