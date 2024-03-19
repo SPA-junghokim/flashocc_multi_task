@@ -47,7 +47,7 @@ voxel_size = [0.1, 0.1, 0.2]
 numC_Trans = 64
 
 model = dict(
-    type='BEVDetOCC',
+    type='BEVDepth4D_MTL',
     img_backbone=dict(
         type='ResNet',
         depth=50,
