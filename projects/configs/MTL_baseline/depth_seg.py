@@ -46,8 +46,17 @@ voxel_size = [0.1, 0.1, 0.2]
 
 numC_Trans = 64
 
+multi_adj_frame_id_cfg = (1, 1, 1)
+
+if len(range(*multi_adj_frame_id_cfg)) == 0:
+    numC_Trans_cat = 0
+else:
+    numC_Trans_cat = numC_Trans
+
 model = dict(
     type='BEVDepth4D_MTL',
+    align_after_view_transfromation=False,
+    num_adj=len(range(*multi_adj_frame_id_cfg)),
     img_backbone=dict(
         type='ResNet',
         depth=50,
@@ -80,7 +89,7 @@ model = dict(
         ),
     img_bev_encoder_backbone=dict(
         type='CustomResNet',
-        numC_input=numC_Trans,
+        numC_input=numC_Trans + numC_Trans_cat,
         num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
     img_bev_encoder_neck=dict(
         type='FPN_LSS',
@@ -95,7 +104,9 @@ model = dict(
         loss_type='focal',
         loss_weight=[40.0, 40.0, 40.0, 40.0, 40.0, 40.0],
         ),  
-    
+    det_loss_weight = 1,
+    occ_loss_weight = 1.25,
+    seg_loss_weight = 2.2,
 )
 
 # Data
@@ -186,7 +197,8 @@ share_data_config = dict(
 test_data_config = dict(
     segmentation=True,
     pipeline=test_pipeline,
-    ann_file=data_root + 'bevdetv2-nuscenes_infos_val_seg.pkl')
+    ann_file=data_root + 'data10_seg.pkl')
+    # ann_file=data_root + 'bevdetv2-nuscenes_infos_val_seg.pkl')
 
 data = dict(
     samples_per_gpu=4,
@@ -194,7 +206,8 @@ data = dict(
     train=dict(
         segmentation=True,
         data_root=data_root,
-        ann_file=data_root + 'bevdetv2-nuscenes_infos_train_seg.pkl',
+        # ann_file=data_root + 'bevdetv2-nuscenes_infos_train_seg.pkl',
+        ann_file=data_root + 'data10_seg.pkl',
         pipeline=train_pipeline,
         classes=class_names,
         test_mode=False,
@@ -218,7 +231,7 @@ lr_config = dict(
     warmup_iters=200,
     warmup_ratio=0.001,
     step=[24, ])
-runner = dict(type='EpochBasedRunner', max_epochs=24)
+runner = dict(type='EpochBasedRunner', max_epochs=2)
 
 custom_hooks = [
     dict(

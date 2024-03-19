@@ -17,6 +17,9 @@ class BEVDepth4D_MTL(BEVDepth4D):
                  down_sample_for_3d_pooling=None,
                  pc_range = [-40.0, -40.0, -1, 40.0, 40.0, 5.4],
                  grid_size = [200, 200, 16],
+                 det_loss_weight=1,
+                 occ_loss_weight=1,
+                 seg_loss_weight=1,
                  **kwargs):
         super(BEVDepth4D_MTL, self).__init__(**kwargs)
         
@@ -45,7 +48,9 @@ class BEVDepth4D_MTL(BEVDepth4D):
                         
         self.pc_range = torch.tensor(pc_range)
         self.grid_size = torch.tensor(grid_size)
-        
+        self.det_loss_weight = det_loss_weight
+        self.occ_loss_weight = occ_loss_weight
+        self.seg_loss_weight = seg_loss_weight
         
     def forward_train(self,
                       points=None,
@@ -95,12 +100,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
         loss_depth = self.img_view_transformer.get_depth_loss(gt_depth, depth)
         losses['loss_depth'] = loss_depth
 
-        voxel_semantics = kwargs['voxel_semantics']     # (B, Dx, Dy, Dz)
-        mask_camera = kwargs['mask_camera']     # (B, Dx, Dy, Dz)
-        loss_occ = self.forward_occ_train(img_feats[0], voxel_semantics, mask_camera)
-        losses.update(loss_occ)
-        
-        
         # Get box losses
         if self.pts_bbox_head is not None:
             bbox_outs = self.pts_bbox_head(img_feats)
@@ -111,11 +110,13 @@ class BEVDepth4D_MTL(BEVDepth4D):
             losses.update(loss_weight)
             
         if self.occ_head is not None:
+            voxel_semantics = kwargs['voxel_semantics']     # (B, Dx, Dy, Dz)
+            mask_camera = kwargs['mask_camera']     # (B, Dx, Dy, Dz)
             loss_occ = self.forward_occ_train(img_feats[0], voxel_semantics, mask_camera)
             losses.update(loss_occ)
         
         if self.seg_head is not None:
-            seg_out = self.seg_head(seg_feat[0])
+            seg_out = self.seg_head(img_feats[0])
             gt_seg_mask = gt_seg_mask.permute(0,3,1,2)
             losses_seg = self.seg_head.loss(seg_out, gt_seg_mask)
             loss_weight = {}
@@ -167,7 +168,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
             occ_out = self.simple_test_occ(img_feats[0], img_metas)    # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
     
         if self.seg_head is not None:
-            seg_out = self.seg_bev_head(seg_feat[0])
+            seg_out = self.seg_head(img_feats[0])
             
         return bbox_out, occ_out, voxel_semantics, mask_lidar, mask_camera, seg_out, gt_seg_mask
 
