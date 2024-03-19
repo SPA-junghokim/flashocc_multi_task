@@ -15,7 +15,8 @@ data_config = {
         'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_BACK_LEFT',
         'CAM_BACK', 'CAM_BACK_RIGHT'
     ],
-    'Ncams': 6,
+    'Ncams':
+    6,
     'input_size': (256, 704),
     'src_size': (900, 1600),
 
@@ -35,14 +36,12 @@ grid_config = {
 }
 
 voxel_size = [0.1, 0.1, 0.2]
-# find_unused_parameters = True
+
 numC_Trans = 64
-depth_categories = 88
 
 model = dict(
-    type='BEVDetOCC_depthGT',
+    type='BEVDetOCC',
     img_backbone=dict(
-        pretrained='torchvision://resnet50',
         type='ResNet',
         depth=50,
         num_stages=4,
@@ -51,7 +50,9 @@ model = dict(
         norm_cfg=dict(type='BN', requires_grad=True),
         norm_eval=False,
         with_cp=True,
-        style='pytorch'),
+        style='pytorch',
+        pretrained='torchvision://resnet50',
+    ),
     img_neck=dict(
         type='CustomFPN',
         in_channels=[1024, 2048],
@@ -59,26 +60,17 @@ model = dict(
         num_outs=1,
         start_level=0,
         out_ids=[0]),
-    depth_net=dict(
-        type='CM_DepthNet', # camera-aware depth net
-        in_channels=256,
-        context_channels=numC_Trans,
-        downsample=16,
-        grid_config=grid_config,
-        depth_channels=depth_categories,
-        with_cp = True,
-        loss_depth_weight=0.05,
-        use_dcn=False,
-    ),
     img_view_transformer=dict(
-        type='LSSViewTransformer_depthGT',
+        type='LSSViewTransformerBEVDepth',
         grid_config=grid_config,
         input_size=data_config['input_size'],
         in_channels=256,
         out_channels=numC_Trans,
         sid=False,
         collapse_z=True,
-        downsample=16),
+        downsample=16
+        depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
+        ),
     img_bev_encoder_backbone=dict(
         type='CustomResNet',
         numC_input=numC_Trans,
@@ -230,8 +222,28 @@ custom_hooks = [
 ]
 
 # load_from = "ckpts/bevdet-r50-cbgs.pth"
-load_from = 'ckpts/r50_256x705_depth_pretrain.pth'
 # fp16 = dict(loss_scale='dynamic')
-evaluation = dict(interval=1, start=20, pipeline=test_pipeline)
+evaluation = dict(interval=1, start=24, pipeline=test_pipeline)
 checkpoint_config = dict(interval=1, max_keep_ckpts=5)
 
+
+# with det pretrain; use_mask=True; out_dim=256,
+# ===> per class IoU of 6019 samples:
+# ===> others - IoU = 6.74
+# ===> barrier - IoU = 37.65
+# ===> bicycle - IoU = 10.26
+# ===> bus - IoU = 39.55
+# ===> car - IoU = 44.36
+# ===> construction_vehicle - IoU = 14.88
+# ===> motorcycle - IoU = 13.4
+# ===> pedestrian - IoU = 15.79
+# ===> traffic_cone - IoU = 15.38
+# ===> trailer - IoU = 27.44
+# ===> truck - IoU = 31.73
+# ===> driveable_surface - IoU = 78.82
+# ===> other_flat - IoU = 37.98
+# ===> sidewalk - IoU = 48.7
+# ===> terrain - IoU = 52.5
+# ===> manmade - IoU = 37.89
+# ===> vegetation - IoU = 32.24
+# ===> mIoU of 6019 samples: 32.08

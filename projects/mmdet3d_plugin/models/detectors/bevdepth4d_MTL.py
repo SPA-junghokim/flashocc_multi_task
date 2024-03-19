@@ -8,21 +8,32 @@ import torch.nn as nn
 
 
 @DETECTORS.register_module()
-class BEVDepth4DOCC_MTL(BEVDepth4D):
+class BEVDepth4D_MTL(BEVDepth4D):
     def __init__(self,
                  occ_head=None,
                  upsample=False,
                  down_sample_for_3d_pooling=None,
-                 single_bev_num_channels=None,
                  pc_range = [-40.0, -40.0, -1, 40.0, 40.0, 5.4],
                  grid_size = [200, 200, 16],
-                 
                  **kwargs):
         super(BEVStereo4DOCC, self).__init__(**kwargs)
         self.occ_head = build_head(occ_head)
         self.pts_bbox_head = None
         self.upsample = upsample
-
+        self.down_sample_for_3d_pooling = down_sample_for_3d_pooling        
+        
+        if self.down_sample_for_3d_pooling is not None:
+            self.down_sample_for_3d_pooling = \
+                        nn.Conv2d(self.down_sample_for_3d_pooling[0],
+                        self.down_sample_for_3d_pooling[1],
+                        kernel_size=1,
+                        padding=0,
+                        stride=1)
+                        
+        self.pc_range = torch.tensor(pc_range)
+        self.grid_size = torch.tensor(grid_size)
+        
+        
     def forward_train(self,
                       points=None,
                       img_metas=None,
