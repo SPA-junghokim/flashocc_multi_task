@@ -91,6 +91,8 @@ class Metric_mIoU():
             tuple:(hist, correctly number_predicted_labels, num_labelled_sample)
         """
         assert pred.shape == gt.shape
+        # pred = pred.cpu().numpy() 
+        # gt = gt.cpu().numpy()
         k = (gt >= 0) & (gt < n_cl)  # exclude 255
         labeled = np.sum(k)     # N_total
         correct = np.sum((pred[k] == gt[k]))    # N_correct
