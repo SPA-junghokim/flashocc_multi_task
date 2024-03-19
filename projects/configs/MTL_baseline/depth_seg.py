@@ -41,6 +41,7 @@ seg_grid_config={
     'zbound': [-1, 5.4, 6.4],
     'dbound': [1.0, 45.0, 0.5],}
 
+map_classes = ['drivable_area', 'ped_crossing', 'walkway', 'stop_line', 'carpark_area', 'divider']
 voxel_size = [0.1, 0.1, 0.2]
 
 numC_Trans = 64
@@ -183,14 +184,14 @@ share_data_config = dict(
 
 test_data_config = dict(
     pipeline=test_pipeline,
-    ann_file=data_root + 'bevdetv2-nuscenes_infos_val.pkl')
+    ann_file=data_root + 'bevdetv2-nuscenes_infos_val_seg.pkl')
 
 data = dict(
     samples_per_gpu=4,
     workers_per_gpu=4,
     train=dict(
         data_root=data_root,
-        ann_file=data_root + 'bevdetv2-nuscenes_infos_train.pkl',
+        ann_file=data_root + 'bevdetv2-nuscenes_infos_train_seg.pkl',
         pipeline=train_pipeline,
         classes=class_names,
         test_mode=False,
