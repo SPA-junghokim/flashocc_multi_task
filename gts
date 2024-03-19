@@ -1,1 +1,0 @@
-/mnt/sda/bdkim/dataset/Occpancy3D-nuScenes-V1.0/trainval/gts
