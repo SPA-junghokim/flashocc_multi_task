@@ -19,3 +19,5 @@ data/
 build-old
 ppl.cv
 .vscode
+
+train.sh
