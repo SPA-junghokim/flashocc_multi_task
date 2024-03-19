@@ -1,5 +1,5 @@
 /ckpts/
-gts/
+gts*/
 *.o
 *.so
 *.pyc
