@@ -226,6 +226,11 @@ def multi_gpu_test(model: nn.Module,
     total_union = 0
     total_fp = 0.0
     total_fn = 0.0
+    
+    occ_eval_metrics = Metric_mIoU(
+            num_classes=18,
+            use_lidar_mask=False,
+            use_image_mask=True)
     for i, data in enumerate(data_loader):
         
         with torch.no_grad():
@@ -238,12 +243,11 @@ def multi_gpu_test(model: nn.Module,
                 # else:
                 #     voxel_out = torch.argmax(voxel_out, dim=1) #[B, C, X, Y, Z]
                 for count in range(len(data["img_metas"])):
-                    
-                    self.occ_eval_metrics.add_batch(
+                    occ_eval_metrics.add_batch(
                         voxel_out[count],   # (Dx, Dy, Dz)
-                        gt_semantics[count],   # (Dx, Dy, Dz)
-                        mask_lidar[count],     # (Dx, Dy, Dz)
-                        mask_camera[count]     # (Dx, Dy, Dz)
+                        gt_semantics[0][count],   # (Dx, Dy, Dz)
+                        mask_lidar[0][count],     # (Dx, Dy, Dz)
+                        mask_camera[0][count]     # (Dx, Dy, Dz)
                     )
                     # CalMeanIou_vox._after_step(
                     #     voxel_out[count].flatten(),
@@ -350,10 +354,6 @@ def multi_gpu_test(model: nn.Module,
             for _ in range(batch_size_all):
                 prog_bar.update()
                 
-    # occ_eval_metrics = Metric_mIoU(
-    #         num_classes=18,
-    #         use_lidar_mask=False,
-    #         use_image_mask=True)
     
     if voxel_out is not None:
         print(occ_eval_metrics.count_miou())

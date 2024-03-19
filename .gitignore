@@ -1,4 +1,5 @@
 /ckpts/
+gts*/
 gts/
 *.o
 *.so
