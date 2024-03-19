@@ -5,7 +5,7 @@ from mmdet3d.models import DETECTORS
 from mmdet3d.models.builder import build_head
 import torch.nn.functional as F
 import torch.nn as nn
-
+import torch
 
 @DETECTORS.register_module()
 class BEVDepth4D_MTL(BEVDepth4D):
@@ -16,7 +16,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
                  pc_range = [-40.0, -40.0, -1, 40.0, 40.0, 5.4],
                  grid_size = [200, 200, 16],
                  **kwargs):
-        super(BEVStereo4DOCC, self).__init__(**kwargs)
+        super(BEVDepth4D_MTL, self).__init__(**kwargs)
         self.occ_head = build_head(occ_head)
         self.pts_bbox_head = None
         self.upsample = upsample
@@ -180,6 +180,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         bev_feat_list = []
         depth_list = []
         key_frame = True  # back propagation for key frame only
+        breakpoint()
         for img, sensor2keyego, ego2global, intrin, post_rot, post_tran in zip(
                 imgs, sensor2keyegos, ego2globals, intrins, post_rots, post_trans):
             if key_frame or self.with_prev:

@@ -39,8 +39,16 @@ voxel_size = [0.1, 0.1, 0.2]
 
 numC_Trans = 64
 
+multi_adj_frame_id_cfg = (1, 1, 1)
+
+if len(range(*multi_adj_frame_id_cfg)) == 0:
+    numC_Trans_cat = 0
+else:
+    numC_Trans_cat = numC_Trans
+
 model = dict(
-    type='BEVDetOCC',
+    type='BEVDepth4D_MTL',
+    num_adj=len(range(*multi_adj_frame_id_cfg)),
     img_backbone=dict(
         type='ResNet',
         depth=50,
@@ -73,7 +81,7 @@ model = dict(
         ),
     img_bev_encoder_backbone=dict(
         type='CustomResNet',
-        numC_input=numC_Trans,
+        numC_input=numC_Trans + numC_Trans_cat,
         num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
     img_bev_encoder_neck=dict(
         type='FPN_LSS',
