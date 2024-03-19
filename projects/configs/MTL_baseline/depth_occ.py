@@ -68,7 +68,7 @@ model = dict(
         out_channels=numC_Trans,
         sid=False,
         collapse_z=True,
-        downsample=16
+        downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
         ),
     img_bev_encoder_backbone=dict(
