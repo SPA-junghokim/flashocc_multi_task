@@ -146,7 +146,6 @@ class BEVOCCHead2D(BaseModule):
         self.in_dim = in_dim
         self.out_dim = out_dim
         self.Dz = Dz
-        self.mtl = mtl
         out_channels = out_dim if use_predicter else num_classes * Dz
         self.final_conv = ConvModule(
             self.in_dim,

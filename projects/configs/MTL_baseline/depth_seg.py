@@ -101,6 +101,7 @@ model = dict(
         in_channels=256,
         classes=map_classes,
         seperate_decoder=False,
+        grid_transform=None,
         loss_type='focal',
         loss_weight=[40.0, 40.0, 40.0, 40.0, 40.0, 40.0],
         ),  
@@ -196,8 +197,8 @@ share_data_config = dict(
 test_data_config = dict(
     segmentation=True,
     pipeline=test_pipeline,
-    ann_file=data_root + 'data10_seg.pkl')
-    # ann_file=data_root + 'bevdetv2-nuscenes_infos_val_seg.pkl')
+    # ann_file=data_root + 'data10_seg.pkl')
+    ann_file=data_root + 'bevdetv2-nuscenes_infos_val_seg.pkl')
 
 data = dict(
     samples_per_gpu=4,
@@ -205,8 +206,8 @@ data = dict(
     train=dict(
         segmentation=True,
         data_root=data_root,
-        # ann_file=data_root + 'bevdetv2-nuscenes_infos_train_seg.pkl',
-        ann_file=data_root + 'data10_seg.pkl',
+        ann_file=data_root + 'bevdetv2-nuscenes_infos_train_seg.pkl',
+        # ann_file=data_root + 'data10_seg.pkl',
         pipeline=train_pipeline,
         classes=class_names,
         test_mode=False,
@@ -230,7 +231,7 @@ lr_config = dict(
     warmup_iters=200,
     warmup_ratio=0.001,
     step=[24, ])
-runner = dict(type='EpochBasedRunner', max_epochs=2)
+runner = dict(type='EpochBasedRunner', max_epochs=24)
 
 custom_hooks = [
     dict(

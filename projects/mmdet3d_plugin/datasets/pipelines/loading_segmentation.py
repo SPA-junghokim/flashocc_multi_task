@@ -18,8 +18,8 @@ class GenSegGT(object):
     def __init__(self,
                  root_path,
                  grid_config,
-                 patch_size=[102.4, 102.4],
-                 canvas_size=(256, 256), # canvas size must be tuple
+                 patch_size=[80.0, 80.0],
+                 canvas_size=(200, 200), # canvas size must be tuple
                  map_classes=['drivable_area', 'ped_crossing', 'walkway', 'stop_line', 'carpark_area', 'divider'],
                  vehicle_labels=[0,1,2,3,4,6,7],
                  show = False,
@@ -78,12 +78,17 @@ class GenSegGT(object):
 
         map_mask = nusc_map.get_map_mask(patch_box, patch_angle, self.layer_names, canvas_size=self.canvas_size)
         
-        if 'pcd_horizontal_flip' in input_dict:
-            if input_dict['pcd_horizontal_flip']:
-                map_mask = np.flip(map_mask, axis=1)
-        if 'pcd_vertical_flip' in input_dict:
-            if input_dict['pcd_vertical_flip']:
-                map_mask = np.flip(map_mask, axis=2)
+        if input_dict.get('flip_dx', False):
+            map_mask = np.flip(map_mask, axis=1)
+        if input_dict.get('flip_dy', False):
+            map_mask = np.flip(map_mask, axis=2)
+            
+        # if 'pcd_horizontal_flip' in input_dict:
+            # if input_dict['pcd_horizontal_flip']:
+                # map_mask = np.flip(map_mask, axis=1)
+        # if 'pcd_vertical_flip' in input_dict:
+            # if input_dict['pcd_vertical_flip']:
+                # map_mask = np.flip(map_mask, axis=2)
         # map_mask : 7, 256, 256 
         seg_map_mask = map_mask.transpose((1,2,0)) # --> 256, 256, 7 (x,y)
         seg_map_mask = seg_map_mask.astype(np.bool)

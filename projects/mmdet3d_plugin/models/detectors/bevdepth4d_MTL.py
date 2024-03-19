@@ -61,6 +61,8 @@ class BEVDepth4D_MTL(BEVDepth4D):
                       gt_bboxes=None,
                       img_inputs=None,
                       proposals=None,
+                      voxel_semantics=None,
+                      mask_camera=None,
                       gt_bboxes_ignore=None,
                       gt_seg_mask=None,
                       **kwargs):
@@ -99,7 +101,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         losses = dict()
         loss_depth = self.img_view_transformer.get_depth_loss(gt_depth, depth)
         losses['loss_depth'] = loss_depth
-
+        
         # Get box losses
         if self.pts_bbox_head is not None:
             bbox_outs = self.pts_bbox_head(img_feats)
@@ -110,8 +112,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
             losses.update(loss_weight)
             
         if self.occ_head is not None:
-            voxel_semantics = kwargs['voxel_semantics']     # (B, Dx, Dy, Dz)
-            mask_camera = kwargs['mask_camera']     # (B, Dx, Dy, Dz)
             loss_occ = self.forward_occ_train(img_feats[0], voxel_semantics, mask_camera)
             losses.update(loss_occ)
         
