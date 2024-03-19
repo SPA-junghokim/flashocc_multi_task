@@ -103,7 +103,6 @@ model = dict(
             ignore_index=255,
             loss_weight=1.0,
         ),
-        mtl=True,
     )
 )
 
