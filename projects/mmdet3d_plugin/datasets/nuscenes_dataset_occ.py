@@ -35,6 +35,9 @@ colors_map = np.array(
 
 @DATASETS.register_module()
 class NuScenesDatasetOccpancy(NuScenesDataset):
+    def __init__(self, segmentation=False, **kwargs):
+        super(NuScenesDatasetOccpancy, self).__init__(**kwargs)
+        self.segmentation = segmentation
     def get_data_info(self, index):
         """Get data info according to the given index.
 
@@ -59,9 +62,13 @@ class NuScenesDatasetOccpancy(NuScenesDataset):
         # input_dict['occ_gt_path'] = os.path.join(self.data_root, self.data_infos[index]['occ_path'])
         input_dict['occ_gt_path'] = self.data_infos[index]['occ_path']
         
-        input_dict['global_to_curr_lidar_rt'] = torch.FloatTensor(nuscenes_get_rt_matrix(
-                self.data_infos[index], self.data_infos[index],
-                "global", "lidar"))
+        if self.segmentation:
+            input_dict.update(dict(
+                    location=info['log']['location'],
+                ))
+            input_dict['global_to_curr_lidar_rt'] = torch.FloatTensor(nuscenes_get_rt_matrix(
+                    self.data_infos[index], self.data_infos[index],
+                    "global", "lidar"))
         return input_dict
 
     def evaluate(self, occ_results, runner=None, show_dir=None, **eval_kwargs):
