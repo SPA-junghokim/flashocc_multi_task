@@ -95,22 +95,6 @@ model = dict(
         loss_weight=[40.0, 40.0, 40.0, 40.0, 40.0, 40.0],
         ),  
     
-    occ_head=dict(
-        type='BEVOCCHead2D',
-        in_dim=256,
-        out_dim=256,
-        Dz=16,
-        use_mask=True,
-        num_classes=18,
-        use_predicter=True,
-        class_wise=False,
-        loss_occ=dict(
-            type='CrossEntropyLoss',
-            use_sigmoid=False,
-            ignore_index=255,
-            loss_weight=1.0
-        ),
-    )
 )
 
 # Data
