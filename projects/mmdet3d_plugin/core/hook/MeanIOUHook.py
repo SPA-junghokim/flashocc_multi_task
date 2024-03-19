@@ -339,13 +339,7 @@ def multi_gpu_test(model: nn.Module,
                         cv2.imwrite(os.path.join(cur_save_dir, f'{thre_idx}_{i:04d}_{data["img_metas"][0].data[0][0]["sample_idx"]}.png'), imgss)
         if result is not None:
             results.extend(result)
-
-        if result is not None:
-            batch_size = len(result)
-        elif voxel_out is not None:
-            batch_size = voxel_out.shape[0]
-        elif seg_out is not None:
-            batch_size = seg_out.shape[0]
+        batch_size = 1
 
         if rank == 0:
             batch_size_all = batch_size * world_size

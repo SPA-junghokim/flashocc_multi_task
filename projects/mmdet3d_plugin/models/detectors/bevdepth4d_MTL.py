@@ -169,7 +169,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
     
         if self.seg_head is not None:
             seg_out = self.seg_head(img_feats[0])
-            
+
         return bbox_out, occ_out, voxel_semantics, mask_lidar, mask_camera, seg_out, gt_seg_mask
 
     def simple_test_occ(self, img_feats, img_metas=None):
