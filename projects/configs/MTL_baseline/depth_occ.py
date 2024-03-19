@@ -101,8 +101,9 @@ model = dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
             ignore_index=255,
-            loss_weight=1.0
+            loss_weight=1.0,
         ),
+        mtl=True,
     )
 )
 
