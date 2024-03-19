@@ -105,8 +105,8 @@ model = dict(
         loss_weight=[40.0, 40.0, 40.0, 40.0, 40.0, 40.0],
         ),  
     det_loss_weight = 1,
-    occ_loss_weight = 1.25,
-    seg_loss_weight = 2.2,
+    occ_loss_weight = 1,
+    seg_loss_weight = 1.,
 )
 
 # Data
@@ -184,7 +184,6 @@ input_modality = dict(
     use_external=False)
 
 share_data_config = dict(
-    
     type=dataset_type,
     data_root=data_root,
     classes=class_names,

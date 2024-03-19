@@ -103,8 +103,10 @@ model = dict(
             ignore_index=255,
             loss_weight=1.0,
         ),
-        mtl=True,
-    )
+    ) 
+    det_loss_weight = 1,
+    occ_loss_weight = 1,
+    seg_loss_weight = 1.,
 )
 
 # Data
