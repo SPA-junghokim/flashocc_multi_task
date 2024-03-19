@@ -141,7 +141,6 @@ class BEVOCCHead2D(BaseModule):
                  use_predicter=True,
                  class_wise=False,
                  loss_occ=None,
-                 mtl=False,
                  ):
         super(BEVOCCHead2D, self).__init__()
         self.in_dim = in_dim
@@ -234,6 +233,5 @@ class BEVOCCHead2D(BaseModule):
         """
         occ_score = occ_pred.softmax(-1)    # (B, Dx, Dy, Dz, C)
         occ_res = occ_score.argmax(-1)      # (B, Dx, Dy, Dz)
-        # if self.mtl == False:
         occ_res = occ_res.cpu().numpy().astype(np.uint8)     # (B, Dx, Dy, Dz)
         return list(occ_res)
