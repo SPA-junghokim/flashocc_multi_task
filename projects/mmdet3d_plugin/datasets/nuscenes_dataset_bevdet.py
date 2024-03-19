@@ -275,9 +275,6 @@ class NuScenesDatasetBEVDet(Custom3DDataset):
                 if '4d' in self.img_info_prototype:     # 需要再读取历史帧的信息
                     info_adj_list = self.get_adj_info(info, index)
                     input_dict.update(dict(adjacent=info_adj_list))
-            input_dict['global_to_curr_lidar_rt'] = torch.FloatTensor(nuscenes_get_rt_matrix(
-                    self.data_infos[index], self.data_infos[index],
-                    "global", "lidar"))
         return input_dict
 
     def get_adj_info(self, info, index):

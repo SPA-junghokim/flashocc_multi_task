@@ -9,7 +9,6 @@ from tqdm import tqdm
 from mmdet3d.datasets import DATASETS
 from .nuscenes_dataset_bevdet import NuScenesDatasetBEVDet as NuScenesDataset
 from ..core.evaluation.occ_metrics import Metric_mIoU, Metric_FScore
-import torch
 
 colors_map = np.array(
     [
