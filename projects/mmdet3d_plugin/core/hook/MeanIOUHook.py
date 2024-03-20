@@ -265,7 +265,9 @@ def multi_gpu_test(model: nn.Module,
                 f_lane = seg_out.sigmoid()
                 
                 f_lane = f_lane.squeeze(0).view(num_classes, -1)
-                gt_seg_mask_for_metric = gt_seg_mask[0].permute(0,3,1,2)                
+                gt_seg_mask_for_metric = gt_seg_mask[0].flip(2).permute(0,3,1,2)
+                
+                # gt_seg_mask_for_metric = gt_seg_mask[0].permute(0,3,1,2)
                 gt_seg_mask_for_metric = gt_seg_mask_for_metric.squeeze(0).view(6,-1) # (6, -1)보다 (num_classes, -1)이 맞는듯
                 
                 preds = f_lane[:,:,None] >= thresholds.cuda()
@@ -281,7 +283,7 @@ def multi_gpu_test(model: nn.Module,
                 
                 show = False
                 pred_only = False
-                seg_save = True
+                seg_save = False
                 final_thr_list = [
                                   torch.tensor([0.52, 0.41, 0.44, 0.41, 0.39, 0.41]).unsqueeze(1).cuda(),
                                 ]
@@ -303,7 +305,7 @@ def multi_gpu_test(model: nn.Module,
                     gt=gt.cpu().numpy()
                     gt = gt.transpose(1,0,2)
                     gt = gt[::-1]
-                    gt = gt[128-110:128+110, 128-64:128+64, :]
+                    gt = gt[100-90:100+90, 100-90:100+90, :]
                     
                     for thre_idx, final_thr in enumerate(final_thr_list):
                         cur_save_dir_ = os.path.join(seg_save_dir, str(thre_idx))
@@ -320,23 +322,37 @@ def multi_gpu_test(model: nn.Module,
                         
                         pre = pre.transpose(1,0,2)
                         pre = pre[::-1]
-                        pre = pre[128-110:128+110, 128-64:128+64,  :]
+                        pre = pre[100-90:100+90, 100-90:100+90,  :]
                         cur_pred.append(pre)
-                        if seg_save:
-                            imgss=np.concatenate(cur_pred,axis=1)
-                            imgss = cv2.cvtColor(pre, cv2.COLOR_BGR2RGB)      
-                            cv2.imwrite(os.path.join(cur_save_dir_, f'{thre_idx}_{i:04d}_{data["img_metas"][0].data[0][0]["sample_idx"]}.png'), imgss)
+                        # if True:
+                        #     imgss=np.concatenate(cur_pred,axis=1)
+                        #     imgss = cv2.cvtColor(pre, cv2.COLOR_BGR2RGB)      
+                        #     cv2.imwrite(os.path.join(cur_save_dir_, f'{thre_idx}_{i:04d}_{data["img_metas"][0].data[0][0]["sample_idx"]}.png'), imgss)
+                        #     breakpoint()
                     if seg_save:
+                        # cur_save_dir_ = os.path.join(seg_save_dir, 'gt')
+                        # os.makedirs(cur_save_dir_, exist_ok=True)
+                        # imgss=np.concatenate(cur_pred,axis=1)
+                        # imgss = cv2.cvtColor(pre, cv2.COLOR_BGR2RGB)      
+                        # cv2.imwrite(os.path.join(cur_save_dir_, f'gt_{i:04d}_{data["img_metas"][0].data[0][0]["sample_idx"]}.png'), imgss)
+                        
+                        # cur_pred.append(gt)
+                        # imgss=np.concatenate(cur_pred,axis=1)
+                        # imgss = cv2.cvtColor(imgss, cv2.COLOR_BGR2RGB)      
+                        # cv2.imwrite(os.path.join(cur_save_dir, f'{thre_idx}_{i:04d}_{data["img_metas"][0].data[0][0]["sample_idx"]}.png'), imgss)
+                        
+                        breakpoint()
                         cur_save_dir_ = os.path.join(seg_save_dir, 'gt')
                         os.makedirs(cur_save_dir_, exist_ok=True)
-                        imgss=np.concatenate(cur_pred,axis=1)
-                        imgss = cv2.cvtColor(pre, cv2.COLOR_BGR2RGB)      
+                        imgss=np.concatenate(gt,axis=1)
+                        imgss = cv2.cvtColor(gt, cv2.COLOR_BGR2RGB)      
                         cv2.imwrite(os.path.join(cur_save_dir_, f'gt_{i:04d}_{data["img_metas"][0].data[0][0]["sample_idx"]}.png'), imgss)
                         
                         cur_pred.append(gt)
-                        imgss=np.concatenate(cur_pred,axis=1)
-                        imgss = cv2.cvtColor(imgss, cv2.COLOR_BGR2RGB)      
+                        imgss=np.concatenate(pre,axis=1)
+                        imgss = cv2.cvtColor(pre, cv2.COLOR_BGR2RGB)      
                         cv2.imwrite(os.path.join(cur_save_dir, f'{thre_idx}_{i:04d}_{data["img_metas"][0].data[0][0]["sample_idx"]}.png'), imgss)
+                        
         if result is not None:
             results.extend(result)
         batch_size = 1
