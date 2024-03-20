@@ -113,7 +113,10 @@ class BEVDepth4D_MTL(BEVDepth4D):
             
         if self.occ_head is not None:
             loss_occ = self.forward_occ_train(img_feats[0], voxel_semantics, mask_camera)
-            losses.update(loss_occ)
+            loss_weight = {}
+            for k, v in loss_occ.items():
+                loss_weight[k] = v * self.occ_loss_weight
+            losses.update(loss_weight)
         
         if self.seg_head is not None:
             seg_out = self.seg_head(img_feats[0])

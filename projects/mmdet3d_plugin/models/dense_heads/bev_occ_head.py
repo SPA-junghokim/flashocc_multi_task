@@ -5,7 +5,8 @@ from mmcv.runner import BaseModule
 from torch import nn
 import numpy as np
 from mmdet3d.models.builder import HEADS, build_loss
-
+from .lovasz_losses import lovasz_softmax
+from torch.nn import functional as F
 
 nusc_class_frequencies = np.array([
     944004,
@@ -141,6 +142,7 @@ class BEVOCCHead2D(BaseModule):
                  use_predicter=True,
                  class_wise=False,
                  loss_occ=None,
+                 lovasz_loss=False,
                  ):
         super(BEVOCCHead2D, self).__init__()
         self.in_dim = in_dim
@@ -168,7 +170,9 @@ class BEVOCCHead2D(BaseModule):
         self.num_classes = num_classes
         self.loss_occ = build_loss(loss_occ)
         self.class_wise = class_wise
-
+        self.lovasz_loss = lovasz_loss
+        self.lovasz_softmax_loss = lovasz_softmax
+        
     def forward(self, img_feats):
         """
         Args:
@@ -214,11 +218,18 @@ class BEVOCCHead2D(BaseModule):
                 avg_factor=num_total_samples
             )
             loss['loss_occ'] = loss_occ
+            if self.lovasz_loss:
+                lovasz_softmax_loss = self.lovasz_softmax_loss(F.softmax(occ_pred.permute(0,4,1,2,3), dim=1), voxel_semantics, ignores=255)
+                loss['lovasz_softmax_loss'] = lovasz_softmax_loss
+            
         else:
             voxel_semantics = voxel_semantics.reshape(-1)
             preds = occ_pred.reshape(-1, self.num_classes)
             loss_occ = self.loss_occ(preds, voxel_semantics)
             loss['loss_occ'] = loss_occ
+            if self.lovasz_loss:
+                lovasz_softmax_loss = self.lovasz_softmax_loss(F.softmax(occ_pred, dim=1), voxel_semantics, ignores=255)
+                loss['lovasz_softmax_loss'] = lovasz_softmax_loss
         return loss
 
     def get_occ(self, occ_pred, img_metas=None):
