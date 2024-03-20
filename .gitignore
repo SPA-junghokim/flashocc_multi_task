@@ -21,7 +21,6 @@ data/
 *old*
 build-old
 ppl.cv
-.vscode
 
 train.sh
 lidarseg/
