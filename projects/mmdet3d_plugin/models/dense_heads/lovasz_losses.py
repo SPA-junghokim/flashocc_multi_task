@@ -23,7 +23,7 @@ def lovasz_grad(gt_sorted):
     return jaccard
 
 
-def lovasz_softmax(probas, labels, classes='present', per_image=False, ignores=None):
+def lovasz_softmax(probas, labels, classes='present', per_image=False, ignore=None):
     """
     Multi-class Lovasz-Softmax loss
       probas: [B, C, H, W] Variable, class probabilities at each prediction (between 0 and 1).
@@ -34,10 +34,10 @@ def lovasz_softmax(probas, labels, classes='present', per_image=False, ignores=N
       ignore: void class labels
     """
     if per_image:
-        loss = mean(lovasz_softmax_flat(*flatten_probas(prob.unsqueeze(0), lab.unsqueeze(0), ignores), classes=classes)
+        loss = mean(lovasz_softmax_flat(*flatten_probas(prob.unsqueeze(0), lab.unsqueeze(0), ignore), classes=classes)
                           for prob, lab in zip(probas, labels))
     else:
-        loss = lovasz_softmax_flat(*flatten_probas(probas, labels, ignores), classes=classes)
+        loss = lovasz_softmax_flat(*flatten_probas(probas, labels, ignore), classes=classes)
     return loss
 
 
@@ -75,7 +75,7 @@ def lovasz_softmax_flat(probas, labels, classes='present'):
     return mean(losses)
 
 
-def flatten_probas(probas, labels, ignores=None):
+def flatten_probas(probas, labels, ignore=None):
     """
     Flattens predictions in the batch
     probas = [2, 18, 200, 200, 16]
@@ -92,9 +92,9 @@ def flatten_probas(probas, labels, ignores=None):
     B, C, H, W = probas.size()
     probas = probas.permute(0, 2, 3, 1).contiguous().view(-1, C)  # B * H * W, C = P, C [1280000, 18]
     labels = labels.view(-1) # [2, 200, 200, 16] -> [1280000]
-    if ignores is None:
+    if ignore is None:
         return probas, labels
-    valid = (labels != ignores) # ignore이 아닌 부분만 남김
+    valid = (labels != ignore) # ignore이 아닌 부분만 남김
     vprobas = probas[valid.nonzero().squeeze()] # [157291, 18]
     vlabels = labels[valid] # ignore이 아닌 부분의 label만 사용 [157291]
     return vprobas, vlabels
