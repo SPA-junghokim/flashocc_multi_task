@@ -3,7 +3,7 @@ _base_ = ['../../../mmdetection3d/configs/_base_/datasets/nus-3d.py',
 
 plugin = True
 plugin_dir = 'projects/mmdet3d_plugin/'
-point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+point_cloud_range = [-40.0, -40.0, -1.0, 40.0, 40.0, 5.4]
 # For nuScenes we usually do 10-class detection
 class_names = [
     'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
@@ -36,6 +36,7 @@ grid_config = {
 }
 
 voxel_size = [0.1, 0.1, 0.2]
+out_size_factor = 4 # This config is for detection. (8 -> 128x128, 4 -> 256x256)
 
 numC_Trans = 64
 
@@ -88,22 +89,67 @@ model = dict(
         type='FPN_LSS',
         in_channels=numC_Trans * 8 + numC_Trans * 2,
         out_channels=256),
-    occ_head=dict(
-        type='BEVOCCHead2D',
-        in_dim=256,
-        out_dim=256,
-        Dz=16,
-        use_mask=True,
-        num_classes=18,
-        use_predicter=True,
-        class_wise=False,
-        loss_occ=dict(
-            type='CrossEntropyLoss',
-            use_sigmoid=False,
-            ignore_index=255,
-            loss_weight=1.0,
-        ),
-    ),
+    
+    pts_bbox_head=dict(
+        type='CenterHead',
+        in_channels=256,
+        tasks=[
+            dict(num_class=10, class_names=['car', 'truck',
+                                            'construction_vehicle',
+                                            'bus', 'trailer',
+                                            'barrier',
+                                            'motorcycle', 'bicycle',
+                                            'pedestrian', 'traffic_cone']),
+        ],
+        common_heads=dict(
+            reg=(2, 2), height=(1, 2), dim=(3, 2), rot=(2, 2), vel=(2, 2)),
+        share_conv_channel=64,
+        bbox_coder=dict(
+            type='CenterPointBBoxCoder',
+            pc_range=point_cloud_range[:2],
+            post_center_range=[-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
+            max_num=500,
+            score_threshold=0.1,
+            out_size_factor=8,
+            voxel_size=voxel_size[:2],
+            code_size=9),
+        separate_head=dict(
+            type='SeparateHead', init_bias=-2.19, final_kernel=3),
+        loss_cls=dict(type='GaussianFocalLoss', reduction='mean', loss_weight=6.),
+        loss_bbox=dict(type='L1Loss', reduction='mean', loss_weight=1.5),
+        norm_bbox=True),
+    # model training and testing settings
+    train_cfg=dict(
+        pts=dict(
+            point_cloud_range=point_cloud_range,
+            grid_size=[1024, 1024, 40],
+            voxel_size=voxel_size,
+            out_size_factor=8,
+            dense_reg=1,
+            gaussian_overlap=0.1,
+            max_objs=500,
+            min_radius=2,
+            code_weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0])),
+    test_cfg=dict(
+        pts=dict(
+            pc_range=point_cloud_range[:2],
+            post_center_limit_range=[-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
+            max_per_img=500,
+            max_pool_nms=False,
+            min_radius=[4, 12, 10, 1, 0.85, 0.175],
+            score_threshold=0.1,
+            out_size_factor=8,
+            voxel_size=voxel_size[:2],
+            pre_max_size=1000,
+            post_max_size=500,
+
+            # Scale-NMS
+            nms_type=['rotate'],
+            nms_thr=[0.2],
+            nms_rescale_factor=[[1.0, 0.7, 0.7, 0.4, 0.55,
+                                 1.1, 1.0, 1.0, 1.5, 3.5]]
+        )
+    )
     det_loss_weight = 1,
     occ_loss_weight = 1,
     seg_loss_weight = 1.,
@@ -132,7 +178,7 @@ train_pipeline = [
         bda_aug_conf=bda_aug_conf,
         classes=class_names,
         is_train=True),
-    dict(type='LoadOccGTFromFile'),
+    # dict(type='LoadOccGTFromFile'),
     dict(
         type='LoadPointsFromFile',
         coord_type='LIDAR',
@@ -140,6 +186,8 @@ train_pipeline = [
         use_dim=5,
         file_client_args=file_client_args),
     dict(type='PointToMultiViewDepth', downsample=1, grid_config=grid_config),
+    dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
+    dict(type='ObjectNameFilter', classes=class_names),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
         type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',

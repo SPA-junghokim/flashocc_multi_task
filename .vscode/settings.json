@@ -1,0 +1,24 @@
+{
+    "python.pythonPath": "/opt/conda/bin/python",
+    // "/venv/venvTest/bin/python3"
+    "workbench.colorCustomizations": {
+        // vscdoe 전체 전경 색
+        "editor.background": "#121a17",
+        // 맨 왼쪽 activityBar
+        "activityBar.background": "#001c15",
+        // 사이드바(파일,폴더) 배경 색
+        "sideBar.background": "#0a1a16",
+        // 그룹 헤더 전체 배경 색
+        "editorGroupHeader.tabsBackground": "#001c15",
+        // 선택된 탭 배경색
+        "tab.activeBackground": "#282f38",
+        // 비활성인 탭 배경색
+        "tab.inactiveBackground": "#001c15",
+        // 상단 타이틀 배경색
+        "titleBar.activeBackground": "#578201",
+        // 상단 타이틀 글자색
+        "titleBar.activeForeground": "#fff",
+        // 하단 상태 배경색
+        "statusBar.background": "#578201",
+      },
+}
