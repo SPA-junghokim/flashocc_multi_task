@@ -144,6 +144,7 @@ class BEVOCCHead2D(BaseModule):
                  loss_occ=None,
                  sololoss=False,
                  weight=[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0],
+                 loss_weight=1,
                  ):
         super(BEVOCCHead2D, self).__init__()
         self.in_dim = in_dim
@@ -175,6 +176,7 @@ class BEVOCCHead2D(BaseModule):
             self.weight = torch.Tensor(weight)
             self.cross_entropy_loss = torch.nn.CrossEntropyLoss(weight=self.weight, ignore_index=255, reduction="mean")
             self.lovasz_softmax_loss = lovasz_softmax
+            self.loss_weight=loss_weight
         else:
             self.loss_occ = build_loss(loss_occ)
             
@@ -213,8 +215,8 @@ class BEVOCCHead2D(BaseModule):
             # lovasz_softmax_loss = self.lovasz_softmax_loss(F.softmax(x, dim=1), target, ignore=self.ignore_label)
             lovasz_softmax_loss = self.lovasz_softmax_loss(F.softmax(occ_pred, dim=1), voxel_semantics, ignore=255)
 
-            loss['voxel_bev_loss'] = voxel_loss 
-            loss['lovasz_softmax_loss'] = lovasz_softmax_loss 
+            loss['voxel_bev_loss'] = voxel_loss * self.loss_weight
+            loss['lovasz_softmax_loss'] = lovasz_softmax_loss * self.loss_weight
         else:
             if self.use_mask:
                 mask_camera = mask_camera.to(torch.int32)   # (B, Dx, Dy, Dz)

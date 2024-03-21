@@ -3,7 +3,7 @@ _base_ = ['../../../mmdetection3d/configs/_base_/datasets/nus-3d.py',
 
 plugin = True
 plugin_dir = 'projects/mmdet3d_plugin/'
-point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+point_cloud_range = [-40.0, -40.0, -1.0, 40.0, 40.0, 5.4]
 # For nuScenes we usually do 10-class detection
 class_names = [
     'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
@@ -104,9 +104,10 @@ model = dict(
             loss_weight=1.0,
         ),
         sololoss=True,
+        loss_weight=10,
     ),
     det_loss_weight = 1,
-    occ_loss_weight = 10,
+    occ_loss_weight = 1,
     seg_loss_weight = 1.,
 )
 

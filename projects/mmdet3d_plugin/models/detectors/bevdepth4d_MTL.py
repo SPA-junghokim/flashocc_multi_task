@@ -28,8 +28,11 @@ class BEVDepth4D_MTL(BEVDepth4D):
                  img_bev_encoder_neck=None,
                  occ_bev_encoder_neck=None,
                  seg_bev_encoder_neck=None,
+                 detection_backbone=False,
+                 detection_neck=False,
                  **kwargs):
-        super(BEVDepth4D_MTL, self).__init__(pts_bbox_head=pts_bbox_head, **kwargs)
+        super(BEVDepth4D_MTL, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
+                                             img_bev_encoder_neck=img_bev_encoder_neck,**kwargs)
         
         self.occ_head = occ_head
         self.seg_head = seg_head
@@ -57,9 +60,9 @@ class BEVDepth4D_MTL(BEVDepth4D):
         self.det_loss_weight = det_loss_weight
         self.occ_loss_weight = occ_loss_weight
         self.seg_loss_weight = seg_loss_weight
+        self.detection_backbone = detection_backbone
+        self.detection_neck = detection_neck
         
-        
-        self.img_bev_encoder_backbone = builder.build_backbone(img_bev_encoder_backbone)
         
         if occ_bev_encoder_backbone is not None:
             self.occ_bev_encoder_backbone = builder.build_backbone(occ_bev_encoder_backbone)
@@ -70,9 +73,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
         else:
             self.seg_bev_encoder_backbone = None
             
-            
-        self.img_bev_encoder_neck = builder.build_backbone(img_bev_encoder_neck)
-        
         if occ_bev_encoder_neck is not None:
             self.occ_bev_encoder_neck = builder.build_backbone(occ_bev_encoder_neck)
         else:
@@ -361,8 +361,11 @@ class BEVDepth4D_MTL(BEVDepth4D):
             occ_bev = self.occ_bev_encoder_backbone(x)
         else:
             occ_bev = det_bev
+            
         if self.seg_bev_encoder_backbone is not None:
             seg_bev = self.seg_bev_encoder_backbone(x)
+        elif self.detection_backbone:
+            seg_bev = occ_bev
         else:
             seg_bev = det_bev
         
@@ -373,8 +376,11 @@ class BEVDepth4D_MTL(BEVDepth4D):
             occ_bev = self.occ_bev_encoder_neck(occ_bev)
         else:
             occ_bev = det_bev
+            
         if self.seg_bev_encoder_neck is not None:
             seg_bev = self.seg_bev_encoder_neck(seg_bev)
+        elif self.detection_neck or self.detection_backbone:
+            seg_bev = occ_bev
         else:
             seg_bev = det_bev
         

@@ -35,9 +35,10 @@ grid_config = {
     'depth': [1.0, 45.0, 0.5],
 }
 
-# class_range = {'car': 40,'truck': 40,'bus': 40,'trailer': 40,'construction_vehicle': 40,
-#     'pedestrian': 30, 'motorcycle': 30,'bicycle': 30,'traffic_cone': 25,'barrier': 25}
-class_range = {'car': 50, 'truck': 50, 'bus': 50, 'trailer': 50, 'construction_vehicle': 50, 'pedestrian': 40, 'motorcycle': 40, 'bicycle': 40, 'traffic_cone': 30, 'barrier': 30}
+# original class_range
+# class_range = {'car': 50, 'truck': 50, 'bus': 50, 'trailer': 50, 'construction_vehicle': 50, 'pedestrian': 40, 'motorcycle': 40, 'bicycle': 40, 'traffic_cone': 30, 'barrier': 30}
+class_range = {'car': 40,'truck': 40,'bus': 40,'trailer': 40,'construction_vehicle': 40,
+    'pedestrian': 30, 'motorcycle': 30,'bicycle': 30,'traffic_cone': 25,'barrier': 25}
             
 voxel_size = [0.1, 0.1, 0.2]
 out_size_factor = 4 # This config is for detection. (8 -> 128x128, 4 -> 256x256)

@@ -35,6 +35,13 @@ grid_config = {
     'depth': [1.0, 45.0, 0.5],
 }
 
+seg_grid_config={
+    'xbound': [-40, 40, 0.4],
+    'ybound': [-40, 40, 0.4],
+    'zbound': [-1, 5.4, 6.4],
+    'dbound': [1.0, 45.0, 0.5],}
+
+map_classes = ['drivable_area', 'ped_crossing', 'walkway', 'stop_line', 'carpark_area', 'divider']
 voxel_size = [0.1, 0.1, 0.2]
 
 numC_Trans = 64
@@ -104,8 +111,18 @@ model = dict(
             loss_weight=1.0,
         ),
         sololoss=True,
-        loss_weight=1,
+        loss_weight=10,
     ),
+    seg_head=dict(
+        type='BEVSegmentationHead',
+        in_channels=256,
+        classes=map_classes,
+        seperate_decoder=False,
+        grid_transform=None,
+        loss_type='focal',
+        loss_weight=[40.0, 40.0, 40.0, 40.0, 40.0, 40.0],
+        ),  
+
     det_loss_weight = 1,
     occ_loss_weight = 1,
     seg_loss_weight = 1.,
@@ -134,18 +151,19 @@ train_pipeline = [
         bda_aug_conf=bda_aug_conf,
         classes=class_names,
         is_train=True),
-    dict(type='LoadOccGTFromFile'),
+    dict(type='LoadOccGTFromFile', ignore_nonvisible=True),
     dict(
         type='LoadPointsFromFile',
         coord_type='LIDAR',
         load_dim=5,
         use_dim=5,
         file_client_args=file_client_args),
+    dict(type='GenSegGT', root_path='data/nuscenes', grid_config=seg_grid_config, map_classes= map_classes),
     dict(type='PointToMultiViewDepth', downsample=1, grid_config=grid_config),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
         type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera'])
+                                'mask_lidar', 'mask_camera','gt_seg_mask'])
 ]
 
 test_pipeline = [
@@ -162,6 +180,7 @@ test_pipeline = [
         use_dim=5,
         file_client_args=file_client_args),
     dict(type='LoadOccGTFromFile'),
+    dict(type='GenSegGT', root_path='data/nuscenes', grid_config=seg_grid_config, map_classes= map_classes),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=(1333, 800),
@@ -173,7 +192,7 @@ test_pipeline = [
                 class_names=class_names,
                 with_label=False),
             dict(type='Collect3D', keys=['points', 'img_inputs', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera'])
+                                'mask_lidar', 'mask_camera', 'gt_seg_mask'])
         ])
 ]
 
@@ -196,6 +215,7 @@ share_data_config = dict(
 )
 
 test_data_config = dict(
+    segmentation=True,
     pipeline=test_pipeline,
     # ann_file=data_root + 'data10_seg.pkl')
     ann_file=data_root + 'bevdetv2-nuscenes_infos_val_seg.pkl')
@@ -204,6 +224,7 @@ data = dict(
     samples_per_gpu=4,
     workers_per_gpu=4,
     train=dict(
+        segmentation=True,
         data_root=data_root,
         ann_file=data_root + 'bevdetv2-nuscenes_infos_train_seg.pkl',
         # ann_file=data_root + 'data10_seg.pkl',
