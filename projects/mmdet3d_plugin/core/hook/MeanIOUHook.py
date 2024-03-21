@@ -340,8 +340,6 @@ def multi_gpu_test(model: nn.Module,
                         # imgss=np.concatenate(cur_pred,axis=1)
                         # imgss = cv2.cvtColor(imgss, cv2.COLOR_BGR2RGB)      
                         # cv2.imwrite(os.path.join(cur_save_dir, f'{thre_idx}_{i:04d}_{data["img_metas"][0].data[0][0]["sample_idx"]}.png'), imgss)
-                        
-                        breakpoint()
                         cur_save_dir_ = os.path.join(seg_save_dir, 'gt')
                         os.makedirs(cur_save_dir_, exist_ok=True)
                         imgss=np.concatenate(gt,axis=1)

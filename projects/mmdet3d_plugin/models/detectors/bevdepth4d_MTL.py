@@ -6,6 +6,8 @@ from mmdet3d.models.builder import build_head
 import torch.nn.functional as F
 import torch.nn as nn
 import torch
+from mmcv.runner import force_fp32
+from mmdet3d.models import builder
 
 @DETECTORS.register_module()
 class BEVDepth4D_MTL(BEVDepth4D):
@@ -20,21 +22,25 @@ class BEVDepth4D_MTL(BEVDepth4D):
                  det_loss_weight=1,
                  occ_loss_weight=1,
                  seg_loss_weight=1,
+                 img_bev_encoder_backbone=None,
+                 occ_bev_encoder_backbone=None,
+                 seg_bev_encoder_backbone=None,
+                 img_bev_encoder_neck=None,
+                 occ_bev_encoder_neck=None,
+                 seg_bev_encoder_neck=None,
                  **kwargs):
-        super(BEVDepth4D_MTL, self).__init__(**kwargs)
+        super(BEVDepth4D_MTL, self).__init__(pts_bbox_head=pts_bbox_head, **kwargs)
         
         self.occ_head = occ_head
         self.seg_head = seg_head
-        self.pts_bbox_head = pts_bbox_head
-        
-        if self.pts_bbox_head is not None:
-            self.pts_bbox_head = build_head(pts_bbox_head)
+
+        if self.pts_bbox_head == None:
+            self.pts_bbox_head = None
         if self.occ_head is not None:
             self.occ_head = build_head(occ_head)
         if self.seg_head is not None:
             self.seg_head = build_head(seg_head)
             
-        self.pts_bbox_head = None
         self.upsample = upsample
         self.down_sample_for_3d_pooling = down_sample_for_3d_pooling        
         
@@ -51,6 +57,31 @@ class BEVDepth4D_MTL(BEVDepth4D):
         self.det_loss_weight = det_loss_weight
         self.occ_loss_weight = occ_loss_weight
         self.seg_loss_weight = seg_loss_weight
+        
+        
+        self.img_bev_encoder_backbone = builder.build_backbone(img_bev_encoder_backbone)
+        
+        if occ_bev_encoder_backbone is not None:
+            self.occ_bev_encoder_backbone = builder.build_backbone(occ_bev_encoder_backbone)
+        else:
+            self.occ_bev_encoder_backbone = None
+        if seg_bev_encoder_backbone is not None:
+            self.seg_bev_encoder_backbone = builder.build_backbone(seg_bev_encoder_backbone)
+        else:
+            self.seg_bev_encoder_backbone = None
+            
+            
+        self.img_bev_encoder_neck = builder.build_backbone(img_bev_encoder_neck)
+        
+        if occ_bev_encoder_neck is not None:
+            self.occ_bev_encoder_neck = builder.build_backbone(occ_bev_encoder_neck)
+        else:
+            self.occ_bev_encoder_neck = None
+        if seg_bev_encoder_neck is not None:
+            self.seg_bev_encoder_neck = builder.build_backbone(seg_bev_encoder_neck)
+        else:
+            self.seg_bev_encoder_neck = None
+        
         
     def forward_train(self,
                       points=None,
@@ -103,8 +134,10 @@ class BEVDepth4D_MTL(BEVDepth4D):
         losses['loss_depth'] = loss_depth
         
         # Get box losses
+        det_feats, occ_feats, seg_feats =  img_feats
+        
         if self.pts_bbox_head is not None:
-            bbox_outs = self.pts_bbox_head(img_feats)
+            bbox_outs = self.pts_bbox_head([det_feats])
             losses_pts = self.pts_bbox_head.loss(gt_bboxes_3d, gt_labels_3d, bbox_outs)
             loss_weight = {}
             for k, v in losses_pts.items():
@@ -112,14 +145,14 @@ class BEVDepth4D_MTL(BEVDepth4D):
             losses.update(loss_weight)
             
         if self.occ_head is not None:
-            loss_occ = self.forward_occ_train(img_feats[0], voxel_semantics, mask_camera)
+            loss_occ = self.forward_occ_train(occ_feats, voxel_semantics, mask_camera)
             loss_weight = {}
             for k, v in loss_occ.items():
                 loss_weight[k] = v * self.occ_loss_weight
             losses.update(loss_weight)
         
         if self.seg_head is not None:
-            seg_out = self.seg_head(img_feats[0])
+            seg_out = self.seg_head(seg_feats)
             gt_seg_mask = gt_seg_mask.permute(0,3,1,2)
             losses_seg = self.seg_head.loss(seg_out, gt_seg_mask)
             loss_weight = {}
@@ -162,16 +195,17 @@ class BEVDepth4D_MTL(BEVDepth4D):
         img_feats, _, _ = self.extract_feat(
             points, img_inputs=img, img_metas=img_metas, **kwargs)
         
+        det_feats, occ_feats, seg_feats =  img_feats
         bbox_out, occ_out, seg_out = None, None, None
         if self.pts_bbox_head is not None:
-            bbox_pts = self.simple_test_pts(img_feats, img_metas, rescale=rescale)
+            bbox_pts = self.simple_test_pts([det_feats], img_metas, rescale=rescale)
             bbox_out = [dict(pts_bbox=bbox_pts[0])]
             
         if self.occ_head is not None:
-            occ_out = self.simple_test_occ(img_feats[0], img_metas)    # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
+            occ_out = self.simple_test_occ(occ_feats, img_metas)    # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
     
         if self.seg_head is not None:
-            seg_out = self.seg_head(img_feats[0])
+            seg_out = self.seg_head(seg_feats)
 
         return bbox_out, occ_out, voxel_semantics, mask_lidar, mask_camera, seg_out, gt_seg_mask
 
@@ -309,6 +343,46 @@ class BEVDepth4D_MTL(BEVDepth4D):
             # x = self.embed(x)
         
         x = self.bev_encoder(bev_feat)
-        return [x], depth_list[0]
+        return x, depth_list[0]
 
+
+    @force_fp32()
+    def bev_encoder(self, x):
+        """
+        Args:
+            x: (B, C, Dy, Dx)
+        Returns:
+            x: (B, C', 2*Dy, 2*Dx)
+        """
+        
+        det_bev = self.img_bev_encoder_backbone(x)
+        
+        if self.occ_bev_encoder_backbone is not None:
+            occ_bev = self.occ_bev_encoder_backbone(x)
+        else:
+            occ_bev = det_bev
+        if self.seg_bev_encoder_backbone is not None:
+            seg_bev = self.seg_bev_encoder_backbone(x)
+        else:
+            seg_bev = det_bev
+        
+        
+        det_bev = self.img_bev_encoder_neck(det_bev)
+        
+        if self.occ_bev_encoder_neck is not None:
+            occ_bev = self.occ_bev_encoder_neck(occ_bev)
+        else:
+            occ_bev = det_bev
+        if self.seg_bev_encoder_neck is not None:
+            seg_bev = self.seg_bev_encoder_neck(seg_bev)
+        else:
+            seg_bev = det_bev
+        
+        if type(det_bev) in [list, tuple]:
+            det_bev = det_bev[0]
+        if type(occ_bev) in [list, tuple]:
+            occ_bev = occ_bev[0]
+        if type(x) in [list, tuple]:
+            seg_bev = seg_bev[0]
+        return [det_bev, occ_bev, seg_bev]
 

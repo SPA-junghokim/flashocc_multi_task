@@ -72,45 +72,93 @@ class NuScenesDatasetOccpancy(NuScenesDataset):
                     "global", "lidar"))
         return input_dict
 
-    def evaluate(self, occ_results, runner=None, show_dir=None, **eval_kwargs):
-        self.occ_eval_metrics = Metric_mIoU(
-            num_classes=18,
-            use_lidar_mask=False,
-            use_image_mask=True)
+    # def evaluate(self, occ_results, runner=None, show_dir=None, **eval_kwargs):
+    #     self.occ_eval_metrics = Metric_mIoU(
+    #         num_classes=18,
+    #         use_lidar_mask=False,
+    #         use_image_mask=True)
 
-        print('\nStarting Evaluation...')
-        for index, occ_pred in enumerate(tqdm(occ_results)):
-            # occ_pred: (Dx, Dy, Dz)
-            info = self.data_infos[index]
-            # occ_gt = np.load(os.path.join(self.data_root, info['occ_path'], 'labels.npz'))
-            occ_gt = np.load(os.path.join(info['occ_path'], 'labels.npz'))
-            gt_semantics = occ_gt['semantics']      # (Dx, Dy, Dz)
-            mask_lidar = occ_gt['mask_lidar'].astype(bool)      # (Dx, Dy, Dz)
-            mask_camera = occ_gt['mask_camera'].astype(bool)    # (Dx, Dy, Dz)
-            # occ_pred = occ_pred
-            self.occ_eval_metrics.add_batch(
-                occ_pred,   # (Dx, Dy, Dz)
-                gt_semantics,   # (Dx, Dy, Dz)
-                mask_lidar,     # (Dx, Dy, Dz)
-                mask_camera     # (Dx, Dy, Dz)
-            )
+    #     print('\nStarting Evaluation...')
+    #     for index, occ_pred in enumerate(tqdm(occ_results)):
+    #         # occ_pred: (Dx, Dy, Dz)
+    #         info = self.data_infos[index]
+    #         # occ_gt = np.load(os.path.join(self.data_root, info['occ_path'], 'labels.npz'))
+    #         occ_gt = np.load(os.path.join(info['occ_path'], 'labels.npz'))
+    #         gt_semantics = occ_gt['semantics']      # (Dx, Dy, Dz)
+    #         mask_lidar = occ_gt['mask_lidar'].astype(bool)      # (Dx, Dy, Dz)
+    #         mask_camera = occ_gt['mask_camera'].astype(bool)    # (Dx, Dy, Dz)
+    #         # occ_pred = occ_pred
+    #         self.occ_eval_metrics.add_batch(
+    #             occ_pred,   # (Dx, Dy, Dz)
+    #             gt_semantics,   # (Dx, Dy, Dz)
+    #             mask_lidar,     # (Dx, Dy, Dz)
+    #             mask_camera     # (Dx, Dy, Dz)
+    #         )
 
-            # if index % 100 == 0 and show_dir is not None:
-            #     gt_vis = self.vis_occ(gt_semantics)
-            #     pred_vis = self.vis_occ(occ_pred)
-            #     mmcv.imwrite(np.concatenate([gt_vis, pred_vis], axis=1),
-            #                  os.path.join(show_dir + "%d.jpg"%index))
+    #         # if index % 100 == 0 and show_dir is not None:
+    #         #     gt_vis = self.vis_occ(gt_semantics)
+    #         #     pred_vis = self.vis_occ(occ_pred)
+    #         #     mmcv.imwrite(np.concatenate([gt_vis, pred_vis], axis=1),
+    #         #                  os.path.join(show_dir + "%d.jpg"%index))
 
-            if show_dir is not None:
-                mmcv.mkdir_or_exist(show_dir)
-                # scene_name = info['scene_name']
-                scene_name = [tem for tem in info['occ_path'].split('/') if 'scene-' in tem][0]
-                sample_token = info['token']
-                mmcv.mkdir_or_exist(os.path.join(show_dir, scene_name, sample_token))
-                save_path = os.path.join(show_dir, scene_name, sample_token, 'pred.npz')
-                np.savez_compressed(save_path, pred=occ_pred, gt=occ_gt, sample_token=sample_token)
+    #         if show_dir is not None:
+    #             mmcv.mkdir_or_exist(show_dir)
+    #             # scene_name = info['scene_name']
+    #             scene_name = [tem for tem in info['occ_path'].split('/') if 'scene-' in tem][0]
+    #             sample_token = info['token']
+    #             mmcv.mkdir_or_exist(os.path.join(show_dir, scene_name, sample_token))
+    #             save_path = os.path.join(show_dir, scene_name, sample_token, 'pred.npz')
+    #             np.savez_compressed(save_path, pred=occ_pred, gt=occ_gt, sample_token=sample_token)
 
-        return self.occ_eval_metrics.count_miou()
+    #     return self.occ_eval_metrics.count_miou()
+
+    def evaluate(self,
+                 results,
+                 metric='bbox',
+                 logger=None,
+                 jsonfile_prefix=None,
+                 result_names=['pts_bbox'],
+                 show=False,
+                 out_dir=None,
+                 pipeline=None):
+        """Evaluation in nuScenes protocol.
+
+        Args:
+            results (list[dict]): Testing results of the dataset.
+            metric (str | list[str], optional): Metrics to be evaluated.
+                Default: 'bbox'.
+            logger (logging.Logger | str, optional): Logger used for printing
+                related information during evaluation. Default: None.
+            jsonfile_prefix (str, optional): The prefix of json files including
+                the file path and the prefix of filename, e.g., "a/b/prefix".
+                If not specified, a temp file will be created. Default: None.
+            show (bool, optional): Whether to visualize.
+                Default: False.
+            out_dir (str, optional): Path to save the visualization results.
+                Default: None.
+            pipeline (list[dict], optional): raw data loading for showing.
+                Default: None.
+
+        Returns:
+            dict[str, float]: Results of each evaluation metric.
+        """
+        result_files, tmp_dir = self.format_results(results, jsonfile_prefix)
+
+        if isinstance(result_files, dict):
+            results_dict = dict()
+            for name in result_names:
+                print('Evaluating bboxes of {}'.format(name))
+                ret_dict = self._evaluate_single(result_files[name])
+            results_dict.update(ret_dict)
+        elif isinstance(result_files, str):
+            results_dict = self._evaluate_single(result_files)
+
+        if tmp_dir is not None:
+            tmp_dir.cleanup()
+
+        if show or out_dir:
+            self.show(results, out_dir, show=show, pipeline=pipeline)
+        return results_dict
 
     def vis_occ(self, semantics):
         # simple visualization of result in BEV

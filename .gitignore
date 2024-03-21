@@ -26,3 +26,5 @@ ppl.cv
 train.sh
 lidarseg/
 panoptic/
+test.sh
+test*.sh

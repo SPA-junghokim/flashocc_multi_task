@@ -139,7 +139,9 @@ class NuScenesDatasetBEVDet(Custom3DDataset):
                  img_info_prototype='mmcv',
                  multi_adj_frame_id_cfg=None,
                  ego_cam='CAM_FRONT',
-                 stereo=False):
+                 stereo=False,
+                 class_range=None,
+                 ):
         self.load_interval = load_interval
         self.use_valid_flag = use_valid_flag
         super().__init__(
@@ -156,6 +158,10 @@ class NuScenesDatasetBEVDet(Custom3DDataset):
         self.eval_version = eval_version
         from nuscenes.eval.detection.config import config_factory
         self.eval_detection_configs = config_factory(self.eval_version)
+        # original {'car': 50, 'truck': 50, 'bus': 50, 'trailer': 50, 'construction_vehicle': 50, 'pedestrian': 40, 'motorcycle': 40, 'bicycle': 40, 'traffic_cone': 30, 'barrier': 30}
+        # modified {'car': 40,'truck': 40,'bus': 40,'trailer': 40,'construction_vehicle': 40,'pedestrian': 30, 'motorcycle': 30,'bicycle': 30,'traffic_cone': 25,'barrier': 25}
+        if class_range is not None:
+            self.eval_detection_configs.class_range = class_range
         if self.modality is None:
             self.modality = dict(
                 use_camera=False,
