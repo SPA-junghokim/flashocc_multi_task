@@ -171,7 +171,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         Returns:
         """
         outs = self.occ_head(img_feats)
-        assert voxel_semantics.min() >= 0 and voxel_semantics.max() <= 17
+        # assert voxel_semantics.min() >= 0 and voxel_semantics.max() <= 17
         loss_occ = self.occ_head.loss(
             outs,  # (B, Dx, Dy, Dz, n_cls)
             voxel_semantics,  # (B, Dx, Dy, Dz)

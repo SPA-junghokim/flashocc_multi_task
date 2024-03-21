@@ -29,21 +29,21 @@ def send_mail(result_line_list, model, server_number):
     det_NDS = ""
     if result_line_list is not None:
         for idx, result in enumerate(result_line_list):
-            if 'noise : 100.00%' in result:
+            if '===> others - IoU = ' in result:
                 occ_result_flag = True
             if 'Map Segmentation Result' in result:
                 seg_result_flag = True
                 
-            if occ_result_flag and len(occ_result_list) < 21:
-                occ_result_list.append(result)
+            if occ_result_flag and len(occ_result_list) < 18:
+                occ_result_list.append(result.split('===> ')[1])
                 
                 
             if seg_result_flag and len(seg_result_list) < 35:
                 seg_result_list.append(result)
                 
-            if 'mIoU' in result:
+            if 'mIoU :' in result:
                 seg_result = result.split(':')[1].strip()
-            if 'mIOU' in result:
+            if 'mIoU of 6019 samples: ' in result:
                 occ_result = result.split(':')[1].strip()
             if 'mAP: ' in result:
                 det_mAP = round(float(result.split(':')[1].strip()), 4)
@@ -63,7 +63,7 @@ def send_mail(result_line_list, model, server_number):
         subject = f"hyundai MTL (in server {server_number}) mAP: {det_mAP}, NDS: {det_NDS}, seg: {seg_result}, occ: {occ_result} - {model}"
         message = f"mAP: {det_mAP}\nmATE: {det_mATE}\nmASE: {det_mASE}\nmAOE: {det_mAOE}\nmAVE: {det_mAVE}\nmAAE: {det_mAAE}\nNDS: {det_NDS}\n"+\
             "\n\n"
-            
+
         for occ_result in occ_result_list:
             message += occ_result
         for seg_result in seg_result_list:
