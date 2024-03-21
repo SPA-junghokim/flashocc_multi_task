@@ -502,6 +502,10 @@ class PointToMultiViewDepth(object):
 
 @PIPELINES.register_module()
 class LoadOccGTFromFile(object):
+    def __init__(self, ignore_nonvisible=False, return_non_vis=False):
+        self.ignore_nonvisible = ignore_nonvisible
+        self.return_non_vis = return_non_vis
+        
     def __call__(self, results):
         occ_gt_path = results['occ_gt_path']
         occ_gt_path = os.path.join(occ_gt_path, "labels.npz")
@@ -510,24 +514,44 @@ class LoadOccGTFromFile(object):
         semantics = occ_labels['semantics']
         mask_lidar = occ_labels['mask_lidar']
         mask_camera = occ_labels['mask_camera']
-
+        
+    
         semantics = torch.from_numpy(semantics)
         mask_lidar = torch.from_numpy(mask_lidar)
         mask_camera = torch.from_numpy(mask_camera)
+
+        if self.return_non_vis:
+            non_vis_semantic_voxel = deepcopy(semantics)
+        else:
+            non_vis_semantic_voxel = None
+        
+        if self.ignore_nonvisible:
+            semantics[~mask_camera.to(torch.bool)] = 255
+        
+        if results['rotate_bda'] != 0:
+            semantics = semantics.permute(2, 0, 1)
+            semantics = rotate(semantics, results['rotate_bda'], fill=255).permute(1, 2, 0)
+            if self.return_non_vis:
+                non_vis_semantic_voxel = non_vis_semantic_voxel.permute(2, 0, 1)
+                non_vis_semantic_voxel = rotate(non_vis_semantic_voxel, results['rotate_bda'], fill=255).permute(1, 2, 0)
 
         if results.get('flip_dx', False):
             semantics = torch.flip(semantics, [0])
             mask_lidar = torch.flip(mask_lidar, [0])
             mask_camera = torch.flip(mask_camera, [0])
+            if self.return_non_vis:
+                non_vis_semantic_voxel = torch.flip(non_vis_semantic_voxel, [0])
 
         if results.get('flip_dy', False):
             semantics = torch.flip(semantics, [1])
             mask_lidar = torch.flip(mask_lidar, [1])
             mask_camera = torch.flip(mask_camera, [1])
+            if self.return_non_vis:
+                non_vis_semantic_voxel = torch.flip(non_vis_semantic_voxel, [0])
 
         results['voxel_semantics'] = semantics
         results['mask_lidar'] = mask_lidar
         results['mask_camera'] = mask_camera
+        results['non_vis_semantic_voxel'] = non_vis_semantic_voxel
 
         return results
-
