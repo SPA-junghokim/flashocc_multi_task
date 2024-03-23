@@ -199,8 +199,8 @@ share_data_config = dict(
 
 test_data_config = dict(
     pipeline=test_pipeline,
-    ann_file=data_root + 'data10_seg.pkl')
-    # ann_file=data_root + 'bevdetv2-nuscenes_infos_val_seg.pkl')
+    # ann_file=data_root + 'data10_seg.pkl')
+    ann_file=data_root + 'bevdetv2-nuscenes_infos_val_seg.pkl')
 
 data = dict(
     samples_per_gpu=4,

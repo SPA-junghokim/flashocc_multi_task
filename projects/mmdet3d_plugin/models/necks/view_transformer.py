@@ -513,6 +513,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
 
         B, N, C, H, W = x.shape
         x = x.view(B * N, C, H, W)      # (B*N_views, C, fH, fW)
+        
         x = self.depth_net(x, mlp_input, stereo_metas)      # (B*N_views, D+C_context, fH, fW)
         depth_digit = x[:, :self.D, ...]    # (B*N_views, D, fH, fW)
         tran_feat = x[:, self.D:self.D + self.out_channels, ...]    # (B*N_views, C_context, fH, fW)

@@ -341,7 +341,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
             # x = x.view(B,N*sem_C,sem_H, sem_W)
             x = self.down_sample_for_3d_pooling(x)
             # x = self.embed(x)
-        
         x = self.bev_encoder(bev_feat)
         return x, depth_list[0]
 
