@@ -37,7 +37,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         self.occ_head = occ_head
         self.seg_head = seg_head
 
-        if self.pts_bbox_head == None:
+        if pts_bbox_head == None:
             self.pts_bbox_head = None
         if self.occ_head is not None:
             self.occ_head = build_head(occ_head)
