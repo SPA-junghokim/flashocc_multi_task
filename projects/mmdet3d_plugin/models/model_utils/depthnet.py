@@ -191,7 +191,6 @@ class DepthNet(nn.Module):
         # 生成context feature
         self.context_conv = nn.Conv2d(
             mid_channels, context_channels, kernel_size=1, stride=1, padding=0)
-
         self.bn = nn.BatchNorm1d(27)
         self.depth_mlp = Mlp(in_features=27, hidden_features=mid_channels, out_features=mid_channels)
         self.depth_se = SELayer(channels=mid_channels)  # NOTE: add camera-aware

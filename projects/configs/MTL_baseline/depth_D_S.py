@@ -273,6 +273,7 @@ share_data_config = dict(
 )
 
 test_data_config = dict(
+    segmentation=True,
     pipeline=test_pipeline,
     # ann_file=data_root + 'data10_seg_val.pkl')
     ann_file=data_root + 'bevdetv2-nuscenes_infos_val_seg.pkl')
@@ -281,6 +282,7 @@ data = dict(
     samples_per_gpu=4,
     workers_per_gpu=4,
     train=dict(
+        segmentation=True,
         data_root=data_root,
         ann_file=data_root + 'bevdetv2-nuscenes_infos_train_seg.pkl',
         # ann_file=data_root + 'data10_seg_val.pkl',
