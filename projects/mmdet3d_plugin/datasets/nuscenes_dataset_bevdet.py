@@ -245,6 +245,7 @@ class NuScenesDatasetBEVDet(Custom3DDataset):
         )
         if 'ann_infos' in info:
             input_dict['ann_infos'] = info['ann_infos']
+
         if self.modality['use_camera']:
             if self.img_info_prototype == 'mmcv':
                 image_paths = []

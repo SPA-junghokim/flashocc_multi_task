@@ -3,7 +3,7 @@ _base_ = ['../../../mmdetection3d/configs/_base_/datasets/nus-3d.py',
 
 plugin = True
 plugin_dir = 'projects/mmdet3d_plugin/'
-point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+point_cloud_range = [-40.0, -40.0, -1.0, 40.0, 40.0, 5.4]
 # For nuScenes we usually do 10-class detection
 class_names = [
     'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
@@ -145,7 +145,7 @@ train_pipeline = [
         type='PrepareImageInputs',
         is_train=True,
         data_config=data_config,
-        sequential=False),
+        sequential=True),
     dict(
         type='LoadAnnotationsBEVDepth',
         bda_aug_conf=bda_aug_conf,
@@ -211,7 +211,9 @@ share_data_config = dict(
     modality=input_modality,
     stereo=False,
     filter_empty_gt=False,
-    img_info_prototype='bevdet',
+    # img_info_prototype='bevdet4d',
+    img_info_prototype='bevdet4d',
+    multi_adj_frame_id_cfg=multi_adj_frame_id_cfg,
 )
 
 test_data_config = dict(
