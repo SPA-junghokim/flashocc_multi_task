@@ -3,7 +3,7 @@ _base_ = ['../../../mmdetection3d/configs/_base_/datasets/nus-3d.py',
 
 plugin = True
 plugin_dir = 'projects/mmdet3d_plugin/'
-point_cloud_range = [-40.0, -40.0, -1.0, 40.0, 40.0, 5.4]
+point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
 # For nuScenes we usually do 10-class detection
 class_names = [
     'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
@@ -36,21 +36,14 @@ grid_config = {
 }
 
 voxel_size = [0.1, 0.1, 0.2]
-
+# find_unused_parameters = True
 numC_Trans = 64
-
-multi_adj_frame_id_cfg = (1, 1, 1)
-
-if len(range(*multi_adj_frame_id_cfg)) == 0:
-    numC_Trans_cat = 0
-else:
-    numC_Trans_cat = numC_Trans
+depth_categories = 88
 
 model = dict(
-    type='BEVDepth4D_MTL',
-    align_after_view_transfromation=False,
-    num_adj=len(range(*multi_adj_frame_id_cfg)),
+    type='BEVDetOCC_depthGT',
     img_backbone=dict(
+        pretrained='torchvision://resnet50',
         type='ResNet',
         depth=50,
         num_stages=4,
@@ -59,9 +52,7 @@ model = dict(
         norm_cfg=dict(type='BN', requires_grad=True),
         norm_eval=False,
         with_cp=True,
-        style='pytorch',
-        pretrained='torchvision://resnet50',
-    ),
+        style='pytorch'),
     img_neck=dict(
         type='CustomFPN',
         in_channels=[1024, 2048],
@@ -69,20 +60,29 @@ model = dict(
         num_outs=1,
         start_level=0,
         out_ids=[0]),
+    depth_net=dict(
+        type='CM_DepthNet', # camera-aware depth net
+        in_channels=256,
+        context_channels=numC_Trans,
+        downsample=16,
+        grid_config=grid_config,
+        depth_channels=depth_categories,
+        with_cp = True,
+        loss_depth_weight=3,
+        use_dcn=False,
+    ),
     img_view_transformer=dict(
-        type='LSSViewTransformerBEVDepth',
+        type='LSSViewTransformer_depthGT',
         grid_config=grid_config,
         input_size=data_config['input_size'],
         in_channels=256,
         out_channels=numC_Trans,
         sid=False,
         collapse_z=True,
-        downsample=16,
-        depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
-        ),
+        downsample=16),
     img_bev_encoder_backbone=dict(
         type='CustomResNet',
-        numC_input=numC_Trans + numC_Trans_cat,
+        numC_input=numC_Trans,
         num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
     img_bev_encoder_neck=dict(
         type='FPN_LSS',
@@ -101,14 +101,11 @@ model = dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
             ignore_index=255,
-            loss_weight=1.0,
+            loss_weight=1.0
         ),
         sololoss=True,
-        loss_weight=7,
-    ),
-    det_loss_weight = 1,
-    occ_loss_weight = 1,
-    seg_loss_weight = 1.,
+        loss_weight=10,
+    )
 )
 
 # Data
@@ -122,19 +119,18 @@ bda_aug_conf = dict(
     flip_dx_ratio=0.5,
     flip_dy_ratio=0.5
 )
-
 train_pipeline = [
     dict(
         type='PrepareImageInputs',
         is_train=True,
         data_config=data_config,
-        sequential=True),
+        sequential=False),
     dict(
         type='LoadAnnotationsBEVDepth',
         bda_aug_conf=bda_aug_conf,
         classes=class_names,
         is_train=True),
-    dict(type='LoadOccGTFromFile', ignore_nonvisible=True),
+    dict(type='LoadOccGTFromFile',ignore_nonvisible=True),
     dict(
         type='LoadPointsFromFile',
         coord_type='LIDAR',
@@ -161,7 +157,6 @@ test_pipeline = [
         load_dim=5,
         use_dim=5,
         file_client_args=file_client_args),
-    dict(type='LoadOccGTFromFile'),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=(1333, 800),
@@ -172,8 +167,7 @@ test_pipeline = [
                 type='DefaultFormatBundle3D',
                 class_names=class_names,
                 with_label=False),
-            dict(type='Collect3D', keys=['points', 'img_inputs', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera'])
+            dict(type='Collect3D', keys=['points', 'img_inputs'])
         ])
 ]
 
@@ -192,23 +186,19 @@ share_data_config = dict(
     modality=input_modality,
     stereo=False,
     filter_empty_gt=False,
-    # img_info_prototype='bevdet',
-    img_info_prototype='bevdet4d',
-    multi_adj_frame_id_cfg=multi_adj_frame_id_cfg,
+    img_info_prototype='bevdet',
 )
 
 test_data_config = dict(
     pipeline=test_pipeline,
-    # ann_file=data_root + 'data10_seg.pkl')
-    ann_file=data_root + 'bevdetv2-nuscenes_infos_val_seg.pkl')
+    ann_file=data_root + 'data10_seg.pkl')
 
 data = dict(
     samples_per_gpu=4,
     workers_per_gpu=4,
     train=dict(
         data_root=data_root,
-        ann_file=data_root + 'bevdetv2-nuscenes_infos_train_seg.pkl',
-        # ann_file=data_root + 'data10_seg.pkl',
+        ann_file=data_root + 'bevdetv2-nuscenes_infos_train.pkl',
         pipeline=train_pipeline,
         classes=class_names,
         test_mode=False,
@@ -217,8 +207,7 @@ data = dict(
         # and box_type_3d='Depth' in sunrgbd and scannet dataset.
         box_type_3d='LiDAR'),
     val=test_data_config,
-    test=test_data_config
-    )
+    test=test_data_config)
 
 for key in ['val', 'train', 'test']:
     data[key].update(share_data_config)
@@ -243,6 +232,7 @@ custom_hooks = [
 ]
 
 # load_from = "ckpts/bevdet-r50-cbgs.pth"
+# load_from = 'ckpts/r50_256x705_depth_pretrain.pth'
 # fp16 = dict(loss_scale='dynamic')
 evaluation = dict(interval=1, start=24, pipeline=test_pipeline)
 checkpoint_config = dict(interval=1, max_keep_ckpts=5)
@@ -268,3 +258,25 @@ checkpoint_config = dict(interval=1, max_keep_ckpts=5)
 # ===> manmade - IoU = 37.89
 # ===> vegetation - IoU = 32.24
 # ===> mIoU of 6019 samples: 32.08
+
+#server 5결과
+# ===> per class IoU of 6019 samples:
+# ===> others - IoU = 6.98
+# ===> barrier - IoU = 39.03
+# ===> bicycle - IoU = 12.61
+# ===> bus - IoU = 36.88
+# ===> car - IoU = 43.83
+# ===> construction_vehicle - IoU = 17.31
+# ===> motorcycle - IoU = 15.44
+# ===> pedestrian - IoU = 16.74
+# ===> traffic_cone - IoU = 16.29
+# ===> trailer - IoU = 28.96
+# ===> truck - IoU = 30.91
+# ===> driveable_surface - IoU = 78.21
+# ===> other_flat - IoU = 37.77
+# ===> sidewalk - IoU = 47.75
+# ===> terrain - IoU = 51.43
+# ===> manmade - IoU = 37.01
+# ===> vegetation - IoU = 31.83
+# ===> mIoU of 6019 samples: 32.29
+
