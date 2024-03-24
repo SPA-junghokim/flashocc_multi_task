@@ -212,6 +212,7 @@ share_data_config = dict(
     stereo=False,
     filter_empty_gt=False,
     # img_info_prototype='bevdet4d',
+    multi_adj_frame_id_cfg=multi_adj_frame_id_cfg,
     img_info_prototype='bevdet4d',
     multi_adj_frame_id_cfg=multi_adj_frame_id_cfg,
 )

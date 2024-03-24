@@ -236,8 +236,8 @@ test_pipeline = [
         load_dim=5,
         use_dim=5,
         file_client_args=file_client_args),
-    dict(type='GenSegGT', root_path='data/nuscenes', grid_config=seg_grid_config, map_classes= map_classes),
     dict(type='LoadOccGTFromFile'),
+    dict(type='GenSegGT', root_path='data/nuscenes', grid_config=seg_grid_config, map_classes= map_classes),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=(1333, 800),

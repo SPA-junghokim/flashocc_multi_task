@@ -219,7 +219,7 @@ train_pipeline = [
         type='PrepareImageInputs',
         is_train=True,
         data_config=data_config,
-        sequential=True),
+        sequential=False),
     dict(
         type='LoadAnnotationsBEVDepth',
         bda_aug_conf=bda_aug_conf,
@@ -257,6 +257,7 @@ test_pipeline = [
         use_dim=5,
         file_client_args=file_client_args),
     dict(type='LoadOccGTFromFile'),
+    dict(type='GenSegGT', root_path='data/nuscenes', grid_config=seg_grid_config, map_classes= map_classes),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=(1333, 800),
@@ -288,8 +289,7 @@ share_data_config = dict(
     modality=input_modality,
     stereo=False,
     filter_empty_gt=False,
-    img_info_prototype='bevdet4d',
-    multi_adj_frame_id_cfg=multi_adj_frame_id_cfg,
+    img_info_prototype='bevdet',
     class_range=class_range
 )
 
