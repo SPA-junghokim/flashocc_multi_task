@@ -145,6 +145,7 @@ class BEVOCCHead2D(BaseModule):
                  sololoss=False,
                  weight=[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0],
                  loss_weight=1,
+                 z_embeding=False,
                  ):
         super(BEVOCCHead2D, self).__init__()
         self.in_dim = in_dim
@@ -179,7 +180,18 @@ class BEVOCCHead2D(BaseModule):
             self.loss_weight=loss_weight
         else:
             self.loss_occ = build_loss(loss_occ)
-            
+        
+        self.z_embeding = z_embeding
+        if self.z_embeding:
+            self.z_embeding = nn.Embedding(self.Dz, self.out_dim)
+            self.predicter = nn.Sequential(
+                nn.Conv3d(self.out_dim, self.out_dim//2, kernel_size=3, dilation=2, padding=2),
+                nn.BatchNorm3d(self.out_dim//2),
+                nn.Conv3d(self.out_dim//2, self.out_dim//4, kernel_size=3, padding=1),
+                nn.BatchNorm3d(self.out_dim//4),
+                nn.Conv3d(self.out_dim//4, num_classes, 1)
+            )
+        
     def forward(self, img_feats):
         """
         Args:
@@ -191,7 +203,10 @@ class BEVOCCHead2D(BaseModule):
         # (B, C, Dy, Dx) --> (B, C, Dy, Dx) --> (B, Dx, Dy, C)
         occ_pred = self.final_conv(img_feats).permute(0, 3, 2, 1)
         bs, Dx, Dy = occ_pred.shape[:3]
-        if self.use_predicter:
+        if self.z_embeding:
+            occ_pred = occ_pred[:,:,:,None] + self.z_embeding.weight[None, None, None] # [8, 256, 128, 128, 16]
+            occ_pred = self.predicter(occ_pred.permute(0,4,1,2,3)).permute(0,2,3,4,1)
+        elif self.use_predicter:
             # (B, Dx, Dy, C) --> (B, Dx, Dy, 2*C) --> (B, Dx, Dy, Dz*n_cls)
             occ_pred = self.predicter(occ_pred)
             occ_pred = occ_pred.view(bs, Dx, Dy, self.Dz, self.num_classes)
