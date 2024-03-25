@@ -28,3 +28,4 @@ lidarseg/
 panoptic/
 test.sh
 test*.sh
+*.ipynb
