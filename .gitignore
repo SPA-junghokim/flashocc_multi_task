@@ -24,6 +24,7 @@ build-old
 ppl.cv
 
 train.sh
+train*.sh
 lidarseg/
 panoptic/
 test.sh
