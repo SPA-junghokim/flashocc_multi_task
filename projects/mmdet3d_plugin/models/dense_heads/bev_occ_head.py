@@ -146,6 +146,7 @@ class BEVOCCHead2D(BaseModule):
                  weight=[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0],
                  loss_weight=1,
                  z_embeding=False,
+                 channel_down_for_3d=False,
                  ):
         super(BEVOCCHead2D, self).__init__()
         self.in_dim = in_dim
@@ -172,6 +173,9 @@ class BEVOCCHead2D(BaseModule):
         self.use_mask = use_mask
         self.num_classes = num_classes
         
+        self.channel_down_for_3d = channel_down_for_3d
+        if self.channel_down_for_3d:
+            self.channel_down_for_3d = nn.Linear(channel_down_for_3d, self.in_dim)
         self.sololoss = sololoss
         if self.sololoss:
             self.weight = torch.Tensor(weight)
@@ -200,6 +204,11 @@ class BEVOCCHead2D(BaseModule):
         Returns:
 
         """
+        if self.channel_down_for_3d:
+            B, C, Z, H, W = img_feats.shape
+            img_feats = img_feats.reshape(B, C*Z, H, W).permute(0, 2, 3, 1)
+            img_feats = self.channel_down_for_3d(img_feats).permute(0, 3, 1, 2)
+            
         # (B, C, Dy, Dx) --> (B, C, Dy, Dx) --> (B, Dx, Dy, C)
         occ_pred = self.final_conv(img_feats).permute(0, 3, 2, 1)
         bs, Dx, Dy = occ_pred.shape[:3]

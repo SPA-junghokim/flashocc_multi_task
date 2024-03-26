@@ -135,7 +135,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         
         # Get box losses
         det_feats, occ_feats, seg_feats =  img_feats
-        
+
         if self.pts_bbox_head is not None:
             bbox_outs = self.pts_bbox_head([det_feats])
             losses_pts = self.pts_bbox_head.loss(gt_bboxes_3d, gt_labels_3d, bbox_outs)
