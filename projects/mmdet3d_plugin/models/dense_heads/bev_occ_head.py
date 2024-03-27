@@ -39,7 +39,10 @@ class BEVOCCHead3D(BaseModule):
                  num_classes=18,
                  use_predicter=True,
                  class_wise=False,
-                 loss_occ=None
+                 loss_occ=None,
+                 sololoss=True,
+                 loss_weight=10,
+                 weight=[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0],
                  ):
         super(BEVOCCHead3D, self).__init__()
         self.out_dim = 32
@@ -65,6 +68,16 @@ class BEVOCCHead3D(BaseModule):
         self.use_mask = use_mask
         self.loss_occ = build_loss(loss_occ)
         self.class_wise = class_wise
+        self.sololoss = sololoss
+        
+        if self.sololoss:
+            self.weight = torch.Tensor(weight)
+            self.cross_entropy_loss = torch.nn.CrossEntropyLoss(weight=self.weight, ignore_index=255, reduction="mean")
+            self.lovasz_softmax_loss = lovasz_softmax
+            self.loss_weight=loss_weight
+        else:
+            self.loss_occ = build_loss(loss_occ)
+        
 
     def forward(self, img_feats):
         """
@@ -93,27 +106,36 @@ class BEVOCCHead3D(BaseModule):
         """
         loss = dict()
         voxel_semantics = voxel_semantics.long()
-        if self.use_mask:
-            mask_camera = mask_camera.to(torch.int32)   # (B, Dx, Dy, Dz)
-            # (B, Dx, Dy, Dz) --> (B*Dx*Dy*Dz, )
-            voxel_semantics = voxel_semantics.reshape(-1)
-            # (B, Dx, Dy, Dz, n_cls) --> (B*Dx*Dy*Dz, n_cls)
-            preds = occ_pred.reshape(-1, self.num_classes)
-            # (B, Dx, Dy, Dz) --> (B*Dx*Dy*Dz, )
-            mask_camera = mask_camera.reshape(-1)
-            num_total_samples = mask_camera.sum()
-            loss_occ = self.loss_occ(
-                preds,      # (B*Dx*Dy*Dz, n_cls)
-                voxel_semantics,    # (B*Dx*Dy*Dz, )
-                mask_camera,        # (B*Dx*Dy*Dz, )
-                avg_factor=num_total_samples
-            )
-            loss['loss_occ'] = loss_occ
+        if self.sololoss:
+            occ_pred = occ_pred.permute(0,4,1,2,3)
+            voxel_loss = self.cross_entropy_loss(occ_pred, voxel_semantics.long()) # x=[8, 17, 128, 128, 16], target = [8, 128, 128, 16]
+            # lovasz_softmax_loss = self.lovasz_softmax_loss(F.softmax(x, dim=1), target, ignore=self.ignore_label)
+            lovasz_softmax_loss = self.lovasz_softmax_loss(F.softmax(occ_pred, dim=1), voxel_semantics, ignore=255)
+
+            loss['voxel_bev_loss'] = voxel_loss * self.loss_weight
+            loss['lovasz_softmax_loss'] = lovasz_softmax_loss * self.loss_weight
         else:
-            voxel_semantics = voxel_semantics.reshape(-1)
-            preds = occ_pred.reshape(-1, self.num_classes)
-            loss_occ = self.loss_occ(preds, voxel_semantics,)
-            loss['loss_occ'] = loss_occ
+            if self.use_mask:
+                mask_camera = mask_camera.to(torch.int32)   # (B, Dx, Dy, Dz)
+                # (B, Dx, Dy, Dz) --> (B*Dx*Dy*Dz, )
+                voxel_semantics = voxel_semantics.reshape(-1)
+                # (B, Dx, Dy, Dz, n_cls) --> (B*Dx*Dy*Dz, n_cls)
+                preds = occ_pred.reshape(-1, self.num_classes)
+                # (B, Dx, Dy, Dz) --> (B*Dx*Dy*Dz, )
+                mask_camera = mask_camera.reshape(-1)
+                num_total_samples = mask_camera.sum()
+                loss_occ = self.loss_occ(
+                    preds,      # (B*Dx*Dy*Dz, n_cls)
+                    voxel_semantics,    # (B*Dx*Dy*Dz, )
+                    mask_camera,        # (B*Dx*Dy*Dz, )
+                    avg_factor=num_total_samples
+                )
+                loss['loss_occ'] = loss_occ
+            else:
+                voxel_semantics = voxel_semantics.reshape(-1)
+                preds = occ_pred.reshape(-1, self.num_classes)
+                loss_occ = self.loss_occ(preds, voxel_semantics,)
+                loss['loss_occ'] = loss_occ
         return loss
 
     def get_occ(self, occ_pred, img_metas=None):
