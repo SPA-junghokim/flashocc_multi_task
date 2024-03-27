@@ -335,12 +335,9 @@ class BEVDepth4D_MTL(BEVDepth4D):
 
         bev_feat = torch.cat(bev_feat_list, dim=1)      # (B, N_frames*C, Dy, Dx)
         
-        
         if self.down_sample_for_3d_pooling is not None:
-            # B, N, sem_C, sem_H, sem_W = x.shape
-            # x = x.view(B,N*sem_C,sem_H, sem_W)
-            x = self.down_sample_for_3d_pooling(x)
-            # x = self.embed(x)
+            bev_feat = self.down_sample_for_3d_pooling(bev_feat)
+            
         x = self.bev_encoder(bev_feat)
         return x, depth_list[0]
 
