@@ -63,7 +63,8 @@ class BEVOCCHead3D(BaseModule):
             if self.head_3dconv:
                 self.predicter = nn.Sequential(
                     nn.Conv3d(self.out_dim, self.out_dim*2, kernel_size=3, padding=1),
-                    nn.BatchNorm3d(self.out_dim*2),
+                    # nn.BatchNorm3d(self.out_dim*2),
+                    nn.Softplus(),
                     nn.Conv3d(self.out_dim*2, num_classes, 1)
                 )
             else:
@@ -254,7 +255,8 @@ class BEVOCCHead2D(BaseModule):
         if self.z_embeding:
             occ_pred = self.final_conv(img_feats)
             occ_pred = occ_pred[..., None] + self.z_embeding.weight.permute(1, 0)[None, :, None, None, :]
-            occ_pred = self.predicter(occ_pred).permute(0,2,3,4,1)
+            # occ_pred = self.predicter(occ_pred).permute(0,2,3,4,1) # 2024-03-28 Thur 22:46 : mIoU 24.45% mistake of permute, below is correct...
+            occ_pred = self.predicter(occ_pred).permute(0,3,2,4,1)
         elif self.use_predicter:
             occ_pred = self.final_conv(img_feats).permute(0, 3, 2, 1)
             bs, Dx, Dy = occ_pred.shape[:3]
