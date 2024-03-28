@@ -106,7 +106,6 @@ model = dict(
         ),
         sololoss=True,
         loss_weight=10,
-        head_3dconv=True,
     ),
     det_loss_weight = 1,
     occ_loss_weight = 1,

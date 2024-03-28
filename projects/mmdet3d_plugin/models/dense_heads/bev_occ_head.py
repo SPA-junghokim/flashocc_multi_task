@@ -43,6 +43,7 @@ class BEVOCCHead3D(BaseModule):
                  sololoss=True,
                  loss_weight=10,
                  weight=[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0],
+                 head_3dconv = False,
                  ):
         super(BEVOCCHead3D, self).__init__()
         self.out_dim = 32
@@ -57,12 +58,20 @@ class BEVOCCHead3D(BaseModule):
             conv_cfg=dict(type='Conv3d')
         )
         self.use_predicter = use_predicter
+        self.head_3dconv = head_3dconv
         if use_predicter:
-            self.predicter = nn.Sequential(
-                nn.Linear(self.out_dim, self.out_dim*2),
-                nn.Softplus(),
-                nn.Linear(self.out_dim*2, num_classes),
-            )
+            if self.head_3dconv:
+                self.predicter = nn.Sequential(
+                    nn.Conv3d(self.out_dim, self.out_dim*2, kernel_size=3, padding=1),
+                    nn.BatchNorm3d(self.out_dim*2),
+                    nn.Conv3d(self.out_dim*2, num_classes, 1)
+                )
+            else:
+                self.predicter = nn.Sequential(
+                    nn.Linear(self.out_dim, self.out_dim*2),
+                    nn.Softplus(),
+                    nn.Linear(self.out_dim*2, num_classes),
+                )
 
         self.num_classes = num_classes
         self.use_mask = use_mask
@@ -88,11 +97,16 @@ class BEVOCCHead3D(BaseModule):
 
         """
         # (B, C, Dz, Dy, Dx) --> (B, C, Dz, Dy, Dx) --> (B, Dx, Dy, Dz, C)
-        occ_pred = self.final_conv(img_feats).permute(0, 4, 3, 2, 1)
         if self.use_predicter:
             # (B, Dx, Dy, Dz, C) --> (B, Dx, Dy, Dz, 2*C) --> (B, Dx, Dy, Dz, n_cls)
-            occ_pred = self.predicter(occ_pred)
-
+            if self.head_3dconv:
+                occ_pred = self.final_conv(img_feats)
+                occ_pred = self.predicter(occ_pred)
+                occ_pred = occ_pred.permute(0, 4, 3, 2, 1)
+            else:
+                occ_pred = self.final_conv(img_feats).permute(0, 4, 3, 2, 1)
+                occ_pred = self.predicter(occ_pred)
+            
         return occ_pred
 
     def loss(self, occ_pred, voxel_semantics, mask_camera):
