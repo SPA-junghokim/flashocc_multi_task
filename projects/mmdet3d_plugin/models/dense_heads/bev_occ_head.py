@@ -46,7 +46,7 @@ class BEVOCCHead3D(BaseModule):
                  head_3dconv = False,
                  ):
         super(BEVOCCHead3D, self).__init__()
-        self.out_dim = 32
+        self.out_dim = out_dim
         out_channels = out_dim if use_predicter else num_classes
         self.final_conv = ConvModule(
             in_dim,

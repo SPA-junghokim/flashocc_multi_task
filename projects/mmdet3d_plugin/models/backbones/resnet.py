@@ -28,7 +28,6 @@ class CustomResNet(nn.Module):
             if num_channels is None else num_channels
         self.backbone_output_ids = range(len(num_layer)) \
             if backbone_output_ids is None else backbone_output_ids
-
         layers = []
         if block_type == 'BottleNeck':
             curr_numC = numC_input
