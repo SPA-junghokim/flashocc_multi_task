@@ -75,6 +75,52 @@ class FPN_LSS(nn.Module):
 
 
 @NECKS.register_module()
+class LSSFPN2D(nn.Module):
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 with_cp=False):
+        super().__init__()
+        self.up1 = nn.Upsample(
+            scale_factor=2, mode='bilinear', align_corners=True)
+        self.up2 = nn.Upsample(
+            scale_factor=4, mode='bilinear', align_corners=True)
+
+        self.conv = ConvModule(
+            in_channels,
+            out_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            bias=False,
+            conv_cfg=dict(type='Conv2d'),
+            norm_cfg=dict(type='BN2d', ),
+            act_cfg=dict(type='ReLU', inplace=True))
+        self.with_cp = with_cp
+
+    def forward(self, feats):
+        """
+        Args:
+            feats: List[
+                (B, C, Dz, Dy, Dx),
+                (B, 2C, Dz/2, Dy/2, Dx/2),
+                (B, 4C, Dz/4, Dy/4, Dx/4)
+            ]
+        Returns:
+            x: (B, C, Dz, Dy, Dx)
+        """
+        x_8, x_16, x_32 = feats
+        x_16 = self.up1(x_16)       # (B, 2C, Dz, Dy, Dx)
+        x_32 = self.up2(x_32)       # (B, 4C, Dz, Dy, Dx)
+        x = torch.cat([x_8, x_16, x_32], dim=1)     # (B, 7C, Dz, Dy, Dx)
+        if self.with_cp:
+            x = checkpoint(self.conv, x)
+        else:
+            x = self.conv(x)    # (B, C, Dz, Dy, Dx)
+        return x
+
+
+@NECKS.register_module()
 class LSSFPN3D(nn.Module):
     def __init__(self,
                  in_channels,
