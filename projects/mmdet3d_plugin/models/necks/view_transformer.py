@@ -4,7 +4,7 @@ import torch.nn as nn
 from mmcv.runner import BaseModule, force_fp32
 from mmdet3d.models.builder import NECKS
 from ...ops import bev_pool_v2
-from ..model_utils import DepthNet, Virtual_DepthNet
+from ..model_utils import DepthNet
 from torch.cuda.amp.autocast_mode import autocast
 import torch.nn.functional as F
 
@@ -44,7 +44,6 @@ class LSSViewTransformer(BaseModule):
         accelerate=False,
         sid=False,
         collapse_z=True,
-        virtual_depth=False,
     ):
         super(LSSViewTransformer, self).__init__()
         self.grid_config = grid_config
@@ -61,7 +60,6 @@ class LSSViewTransformer(BaseModule):
         self.accelerate = accelerate
         self.initial_flag = True
         self.collapse_z = collapse_z
-        self.virtual_depth=virtual_depth
 
     def create_grid_infos(self, x, y, z, **kwargs):
         """Generate the grid information including the lower bound, interval,
@@ -439,32 +437,27 @@ class LSSViewTransformer(BaseModule):
 
 @NECKS.register_module()
 class LSSViewTransformerBEVDepth(LSSViewTransformer):
-    def __init__(self, loss_depth_weight=3.0, depthnet_cfg=dict(), min_focal_length=800, virtual_depth_bin=180, min_ida_scale=0, **kwargs):
+    def __init__(self, loss_depth_weight=3.0, depthnet_cfg=dict(), virtual_depth=False, 
+                 min_focal_length=800, virtual_depth_bin=180, min_ida_scale=0, **kwargs):
         super(LSSViewTransformerBEVDepth, self).__init__(**kwargs)
         self.loss_depth_weight = loss_depth_weight
         self.depth_channels = self.D
+        self.virtual_depth=virtual_depth
         if self.virtual_depth:
             self.depth_channels = virtual_depth_bin
-            self.depth_net = Virtual_DepthNet(
-                in_channels=self.in_channels,
-                mid_channels=self.in_channels,
-                context_channels=self.out_channels,
-                depth_channels=self.depth_channels,
-                **depthnet_cfg)
             self.frustum_virtual = self.create_frustum_virtual(self.grid_config['depth'],self.input_size, self.downsample)
-        else:
-            self.depth_net = DepthNet(
-                in_channels=self.in_channels,
-                mid_channels=self.in_channels,
-                context_channels=self.out_channels,
-                depth_channels=self.depth_channels,
-                **depthnet_cfg)
             
-        if min_ida_scale == 0:
-            self.min_focal_length = min_focal_length
-        else:
+            min_ida_scale = 1 if min_ida_scale == 0 else min_ida_scale
             self.min_focal_length = min_focal_length * min_ida_scale
         
+        self.depth_net = DepthNet(
+            in_channels=self.in_channels,
+            mid_channels=self.in_channels,
+            context_channels=self.out_channels,
+            depth_channels=self.depth_channels,
+            virtual_depth=self.virtual_depth,
+            **depthnet_cfg)
+            
         
     def create_frustum_virtual(self, depth_cfg, input_size, downsample):
         """Generate frustum"""
@@ -571,10 +564,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
          mlp_input) = input[:8]
         B, N, C, H, W = x.shape
         x = x.view(B * N, C, H, W)      # (B*N_views, C, fH, fW)
-        if self.virtual_depth:
-            x = self.depth_net(x, mlp_input)
-        else:
-            x = self.depth_net(x, mlp_input, stereo_metas)      # (B*N_views, D+C_context, fH, fW)
+        x = self.depth_net(x, mlp_input, stereo_metas)      # (B*N_views, D+C_context, fH, fW)
         depth_digit = x[:, :self.depth_channels, ...]    # (B*N_views, D, fH, fW)
         tran_feat = x[:, self.depth_channels:self.depth_channels + self.out_channels, ...]    # (B*N_views, C_context, fH, fW)
         depth = depth_digit.softmax(dim=1)  # (B*N_views, D, fH, fW)

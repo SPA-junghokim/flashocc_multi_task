@@ -180,8 +180,11 @@ class DepthNet(nn.Module):
                  with_cp=False,
                  stereo=False,
                  bias=0.0,
-                 aspp_mid_channels=-1):
+                 aspp_mid_channels=-1,
+                 virtual_depth=False):
         super(DepthNet, self).__init__()
+        self.virtual_depth = virtual_depth
+        
         self.reduce_conv = nn.Sequential(
             nn.Conv2d(
                 in_channels, mid_channels, kernel_size=3, stride=1, padding=1),
@@ -189,50 +192,50 @@ class DepthNet(nn.Module):
             nn.ReLU(inplace=True),
         )
         # 生成context feature
-        self.context_conv = nn.Conv2d(
-            mid_channels, context_channels, kernel_size=1, stride=1, padding=0)
-        self.bn = nn.BatchNorm1d(27)
-        self.depth_mlp = Mlp(in_features=27, hidden_features=mid_channels, out_features=mid_channels)
-        self.depth_se = SELayer(channels=mid_channels)  # NOTE: add camera-aware
-        self.context_mlp = Mlp(in_features=27, hidden_features=mid_channels, out_features=mid_channels)
+        if self.virtual_depth:
+            mlp_input_dim = 10
+            self.context_conv = nn.Sequential(
+                build_conv_layer(cfg=dict(type='DCN',in_channels=mid_channels,out_channels=mid_channels,kernel_size=3,padding=1,groups=4,im2col_step=128)),
+                nn.BatchNorm2d(mid_channels),
+                nn.ReLU(),
+                nn.Conv2d(mid_channels,context_channels,kernel_size=1,stride=1,padding=0)
+            )
+        else:
+            mlp_input_dim = 27
+            self.context_conv = nn.Conv2d(mid_channels, context_channels, kernel_size=1, stride=1, padding=0)
+            self.depth_mlp = Mlp(in_features=mlp_input_dim, hidden_features=mid_channels, out_features=mid_channels)
+            self.depth_se = SELayer(channels=mid_channels)  # NOTE: add camera-aware
+        self.bn = nn.BatchNorm1d(mlp_input_dim)
+        self.context_mlp = Mlp(in_features=mlp_input_dim, hidden_features=mid_channels, out_features=mid_channels)
         self.context_se = SELayer(channels=mid_channels)  # NOTE: add camera-aware
+        
         depth_conv_input_channels = mid_channels
         downsample = None
 
         if stereo:
             depth_conv_input_channels += depth_channels
-            downsample = nn.Conv2d(depth_conv_input_channels,
-                                    mid_channels, 1, 1, 0)
+            downsample = nn.Conv2d(depth_conv_input_channels, mid_channels, 1, 1, 0)
             cost_volumn_net = []
             for stage in range(int(2)):
-                cost_volumn_net.extend([
-                    nn.Conv2d(depth_channels, depth_channels, kernel_size=3,
-                              stride=2, padding=1),
-                    nn.BatchNorm2d(depth_channels)])
+                cost_volumn_net.extend([nn.Conv2d(depth_channels, depth_channels, kernel_size=3,stride=2, padding=1),nn.BatchNorm2d(depth_channels)])
             self.cost_volumn_net = nn.Sequential(*cost_volumn_net)
             self.bias = bias
 
         # 3个残差blocks
-        depth_conv_list = [BasicBlock(depth_conv_input_channels, mid_channels,
-                                      downsample=downsample),
+        depth_conv_list = [BasicBlock(depth_conv_input_channels, mid_channels,downsample=downsample),
                            BasicBlock(mid_channels, mid_channels),
                            BasicBlock(mid_channels, mid_channels)]
+        
         if use_aspp:
             if aspp_mid_channels < 0:
                 aspp_mid_channels = mid_channels
             depth_conv_list.append(ASPP(mid_channels, aspp_mid_channels))
+            
         if use_dcn:
             depth_conv_list.append(
-                build_conv_layer(
-                    cfg=dict(
-                        type='DCN',
-                        in_channels=mid_channels,
-                        out_channels=mid_channels,
-                        kernel_size=3,
-                        padding=1,
-                        groups=4,
-                        im2col_step=128,
-                    )))
+                build_conv_layer(cfg=dict(type='DCN',in_channels=mid_channels,out_channels=mid_channels,
+                        kernel_size=3,padding=1,groups=4,im2col_step=128,)))
+            
         depth_conv_list.append(
             nn.Conv2d(
                 mid_channels,
@@ -240,6 +243,7 @@ class DepthNet(nn.Module):
                 kernel_size=1,
                 stride=1,
                 padding=0))
+        
         self.depth_conv = nn.Sequential(*depth_conv_list)
         self.with_cp = with_cp
         self.depth_channels = depth_channels
@@ -388,9 +392,11 @@ class DepthNet(nn.Module):
         context = self.context_conv(context)        # (B*N_views, C_context, fH, fW)
 
         # (B*N_views, 27) --> (B*N_views, C_mid) --> (B*N_views, C_mid, 1, 1)
-        depth_se = self.depth_mlp(mlp_input)[..., None, None]
-        depth = self.depth_se(x, depth_se)      # (B*N_views, C_mid, fH, fW)
-
+        if self.virtual_depth:
+            depth = x
+        else:
+            depth_se = self.depth_mlp(mlp_input)[..., None, None]
+            depth = self.depth_se(x, depth_se)      # (B*N_views, C_mid, fH, fW)
         if not stereo_metas is None:
             if stereo_metas['cv_feat_list'][0] is None:
                 BN, _, H, W = x.shape
@@ -474,80 +480,3 @@ class DepthAggregation(nn.Module):
         x = self.out_conv(x)
         return x
     
-    
-class Virtual_DepthNet(nn.Module):
-    def __init__(self,
-                 in_channels,
-                 mid_channels,
-                 context_channels,
-                 depth_channels,
-                 camera_channels=10,
-                 with_cp=False,
-                 *args, **kwargs):
-        super(Virtual_DepthNet, self).__init__()
-        self.with_cp = with_cp
-        self.reduce_conv = nn.Sequential(
-            nn.Conv2d(in_channels,
-                      mid_channels,
-                      kernel_size=3,
-                      stride=1,
-                      padding=1),
-            nn.BatchNorm2d(mid_channels),
-            nn.ReLU(inplace=True),
-        )
-
-        self.context_conv = nn.Sequential(
-            build_conv_layer(cfg=dict(
-                type='DCN',
-                in_channels=mid_channels,
-                out_channels=mid_channels,
-                kernel_size=3,
-                padding=1,
-                groups=4,
-                im2col_step=128
-            )),
-            nn.BatchNorm2d(mid_channels),
-            nn.ReLU(),
-            nn.Conv2d(mid_channels,
-                      context_channels,
-                      kernel_size=1,
-                      stride=1,
-                      padding=0)
-        )
-
-        self.bn = nn.BatchNorm1d(camera_channels)
-        self.context_mlp = Mlp(camera_channels, mid_channels, mid_channels)
-        self.context_se = SELayer(mid_channels)  # NOTE: add camera-aware
-
-        self.depth_conv = nn.Sequential(
-            BasicBlock(mid_channels, mid_channels),
-            BasicBlock(mid_channels, mid_channels),
-            BasicBlock(mid_channels, mid_channels),
-            ASPP(mid_channels, mid_channels),
-            build_conv_layer(cfg=dict(
-                type='DCN',
-                in_channels=mid_channels,
-                out_channels=mid_channels,
-                kernel_size=3,
-                padding=1,
-                groups=4,
-                im2col_step=128,
-            )),
-            nn.Conv2d(mid_channels,
-                      depth_channels,
-                      kernel_size=1,
-                      stride=1,
-                      padding=0),
-        )
-
-    def forward(self, x, mlp_input):
-        mlp_input = self.bn(mlp_input.reshape(-1, mlp_input.shape[-1]))
-        x = self.reduce_conv(x)
-        if self.with_cp:
-            depth = checkpoint(self.depth_conv, x)
-        else:
-            depth = self.depth_conv(x)
-        context_se = self.context_mlp(mlp_input)[..., None, None]
-        context = self.context_se(x, context_se)
-        context = self.context_conv(context)
-        return torch.cat([depth, context], dim=1)
