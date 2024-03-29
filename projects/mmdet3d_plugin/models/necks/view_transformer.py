@@ -4,7 +4,7 @@ import torch.nn as nn
 from mmcv.runner import BaseModule, force_fp32
 from mmdet3d.models.builder import NECKS
 from ...ops import bev_pool_v2
-from ..model_utils import DepthNet
+from ..model_utils import DepthNet, Virtual_DepthNet
 from torch.cuda.amp.autocast_mode import autocast
 import torch.nn.functional as F
 
@@ -44,10 +44,12 @@ class LSSViewTransformer(BaseModule):
         accelerate=False,
         sid=False,
         collapse_z=True,
+        virtual_depth=False,
     ):
         super(LSSViewTransformer, self).__init__()
         self.grid_config = grid_config
         self.downsample = downsample
+        self.input_size = input_size
         self.create_grid_infos(**grid_config)
         self.sid = sid
         self.frustum = self.create_frustum(grid_config['depth'],
@@ -59,6 +61,7 @@ class LSSViewTransformer(BaseModule):
         self.accelerate = accelerate
         self.initial_flag = True
         self.collapse_z = collapse_z
+        self.virtual_depth=virtual_depth
 
     def create_grid_infos(self, x, y, z, **kwargs):
         """Generate the grid information including the lower bound, interval,
@@ -137,8 +140,7 @@ class LSSViewTransformer(BaseModule):
         # post-transformation
         # B x N x D x H x W x 3
         points = self.frustum.to(sensor2ego) - post_trans.view(B, N, 1, 1, 1, 3)
-        points = torch.inverse(post_rots).view(B, N, 1, 1, 1, 3, 3)\
-            .matmul(points.unsqueeze(-1))
+        points = torch.inverse(post_rots).view(B, N, 1, 1, 1, 3, 3).matmul(points.unsqueeze(-1))
 
         # cam_to_ego
         points = torch.cat(
@@ -427,6 +429,7 @@ class LSSViewTransformer(BaseModule):
         x = self.depth_net(x)
         depth_digit = x[:, :self.D, ...]    # (B*N, D, fH, fW)
         tran_feat = x[:, self.D:self.D + self.out_channels, ...]    # (B*N, C, fH, fW)
+
         depth = depth_digit.softmax(dim=1)
         return self.view_transform(input, depth, tran_feat)
 
@@ -436,51 +439,107 @@ class LSSViewTransformer(BaseModule):
 
 @NECKS.register_module()
 class LSSViewTransformerBEVDepth(LSSViewTransformer):
-    def __init__(self, loss_depth_weight=3.0, depthnet_cfg=dict(), **kwargs):
+    def __init__(self, loss_depth_weight=3.0, depthnet_cfg=dict(), min_focal_length=800, virtual_depth_bin=180, min_ida_scale=0, **kwargs):
         super(LSSViewTransformerBEVDepth, self).__init__(**kwargs)
         self.loss_depth_weight = loss_depth_weight
-        self.depth_net = DepthNet(
-            in_channels=self.in_channels,
-            mid_channels=self.in_channels,
-            context_channels=self.out_channels,
-            depth_channels=self.D,
-            **depthnet_cfg)
+        self.depth_channels = self.D
+        if self.virtual_depth:
+            self.depth_channels = virtual_depth_bin
+            self.depth_net = Virtual_DepthNet(
+                in_channels=self.in_channels,
+                mid_channels=self.in_channels,
+                context_channels=self.out_channels,
+                depth_channels=self.depth_channels,
+                **depthnet_cfg)
+            self.frustum_virtual = self.create_frustum_virtual(self.grid_config['depth'],self.input_size, self.downsample)
+        else:
+            self.depth_net = DepthNet(
+                in_channels=self.in_channels,
+                mid_channels=self.in_channels,
+                context_channels=self.out_channels,
+                depth_channels=self.depth_channels,
+                **depthnet_cfg)
+            
+        if min_ida_scale == 0:
+            self.min_focal_length = min_focal_length
+        else:
+            self.min_focal_length = min_focal_length * min_ida_scale
+        
+        
+    def create_frustum_virtual(self, depth_cfg, input_size, downsample):
+        """Generate frustum"""
+        # make grid in image plane
+        ogfH, ogfW = input_size
+        fH, fW = ogfH // downsample, ogfW // downsample
+        d_coords = torch.arange(*depth_cfg, dtype=torch.float).view(-1, 1, 1).expand(-1, fH, fW)
+        d_coords = d_coords + depth_cfg[2] / 2.
+        D, _, _ = d_coords.shape
+        x_coords = torch.linspace(0, ogfW - 1, fW, dtype=torch.float).view(
+            1, 1, fW).expand(D, fH, fW)
+        y_coords = torch.linspace(0, ogfH - 1, fH,
+                                  dtype=torch.float).view(1, fH,
+                                                          1).expand(D, fH, fW)
+        paddings = torch.ones_like(d_coords)
 
+        # D x H x W x 3
+        frustum = torch.stack((x_coords, y_coords, d_coords, paddings), -1)
+        return frustum.cuda()
+    
     def get_mlp_input(self, sensor2ego, ego2global, intrin, post_rot, post_tran, bda):
-        """
-        Args:
-            sensor2ego: (B, N_views=6, 4, 4)
-            ego2global: (B, N_views=6, 4, 4)
-            intrin: (B, N_views, 3, 3)
-            post_rot: (B, N_views, 3, 3)
-            post_tran: (B, N_views, 3)
-            bda: (B, 3, 3)
-        Returns:
-            mlp_input: (B, N_views, 27)
-        """
         B, N, _, _ = sensor2ego.shape
-        bda = bda.view(B, 1, 3, 3).repeat(1, N, 1, 1)   # (B, 3, 3) --> (B, N, 3, 3)
-        mlp_input = torch.stack([
-            intrin[:, :, 0, 0],     # fx
-            intrin[:, :, 1, 1],     # fy
-            intrin[:, :, 0, 2],     # cx
-            intrin[:, :, 1, 2],     # cy
-            post_rot[:, :, 0, 0],
-            post_rot[:, :, 0, 1],
-            post_tran[:, :, 0],
-            post_rot[:, :, 1, 0],
-            post_rot[:, :, 1, 1],
-            post_tran[:, :, 1],
-            bda[:, :, 0, 0],
-            bda[:, :, 0, 1],
-            bda[:, :, 1, 0],
-            bda[:, :, 1, 1],
-            bda[:, :, 2, 2]
-        ], dim=-1)      # (B, N_views, 15)
-        sensor2ego = sensor2ego[:, :, :3, :].reshape(B, N, -1)
-        mlp_input = torch.cat([mlp_input, sensor2ego], dim=-1)      # (B, N_views, 27)
+        bda = bda.view(B, 1, 3, 3).repeat(1, N, 1, 1)
+        if self.virtual_depth:
+            mlp_input = torch.stack([
+                intrin[:, :, 0, 0],
+                intrin[:, :, 1, 1],
+                intrin[:, :, 0, 2],
+                intrin[:, :, 1, 2],
+                post_rot[:, :, 0, 0],
+                post_rot[:, :, 0, 1],
+                post_tran[:, :, 0],
+                post_rot[:, :, 1, 0],
+                post_rot[:, :, 1, 1],
+                post_tran[:, :, 1],],dim=-1,)
+        else:
+            mlp_input = torch.stack([
+                intrin[:, :, 0, 0],
+                intrin[:, :, 1, 1],
+                intrin[:, :, 0, 2],
+                intrin[:, :, 1, 2],
+                post_rot[:, :, 0, 0],
+                post_rot[:, :, 0, 1],
+                post_tran[:, :, 0],
+                post_rot[:, :, 1, 0],
+                post_rot[:, :, 1, 1],
+                post_tran[:, :, 1],
+                bda[:, :, 0, 0],
+                bda[:, :, 0, 1],
+                bda[:, :, 1, 0],
+                bda[:, :, 1, 1],
+                bda[:, :, 2, 2],], dim=-1)
+            sensor2ego = sensor2ego[:,:,:3,:].reshape(B, N, -1)
+            mlp_input = torch.cat([mlp_input, sensor2ego], dim=-1)
         return mlp_input
-
+    
+    def get_image_scale(self, intrin_mat, ida_mat):
+        img_mat = ida_mat.matmul(intrin_mat)
+        fx = (img_mat[:, :, 0, 0] ** 2 + img_mat[:, :, 0, 1] ** 2).sqrt()
+        fy = (img_mat[:, :, 1, 0] ** 2 + img_mat[:, :, 1, 1] ** 2).sqrt()
+        image_scales = ((fx ** 2 + fy ** 2) / 2.).sqrt()
+        return image_scales
+    
+    def depth_sampling(self, depth_feature, indices):
+        b, c, h, w = depth_feature.shape
+        indices = indices[:, :, None, None].repeat(1, 1, h, w)
+        indices_floor = indices.floor()
+        indices_ceil = indices_floor + 1
+        max_index = indices_ceil.max().long()
+        if max_index >= c:
+            depth_feature = torch.cat([depth_feature, depth_feature.new_zeros(b, max_index - c + 1, h, w)], 1)
+        sampled_depth_feature = (indices_ceil - indices) * torch.gather(depth_feature, 1, indices_floor.long()) + \
+                                (indices - indices_floor) * torch.gather(depth_feature, 1, indices_ceil.long())
+        return sampled_depth_feature
+    
     def forward(self, input, stereo_metas=None):
         """
         Args:
@@ -510,14 +569,31 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         """
         (x, rots, trans, intrins, post_rots, post_trans, bda,
          mlp_input) = input[:8]
-
         B, N, C, H, W = x.shape
         x = x.view(B * N, C, H, W)      # (B*N_views, C, fH, fW)
-        
-        x = self.depth_net(x, mlp_input, stereo_metas)      # (B*N_views, D+C_context, fH, fW)
-        depth_digit = x[:, :self.D, ...]    # (B*N_views, D, fH, fW)
-        tran_feat = x[:, self.D:self.D + self.out_channels, ...]    # (B*N_views, C_context, fH, fW)
+        if self.virtual_depth:
+            x = self.depth_net(x, mlp_input)
+        else:
+            x = self.depth_net(x, mlp_input, stereo_metas)      # (B*N_views, D+C_context, fH, fW)
+        depth_digit = x[:, :self.depth_channels, ...]    # (B*N_views, D, fH, fW)
+        tran_feat = x[:, self.depth_channels:self.depth_channels + self.out_channels, ...]    # (B*N_views, C_context, fH, fW)
         depth = depth_digit.softmax(dim=1)  # (B*N_views, D, fH, fW)
+        
+        if self.virtual_depth:
+            ida = torch.repeat_interleave(torch.eye(3).unsqueeze(0), B * N, dim=0).view(B, N, 3, 3).to(rots.device)
+            ida[:,:,:3,:3] = post_rots
+            ida[:,:,:2,2] = post_trans[:,:,:2]
+            # ida[:,:,:3,:3] = post_rots
+            # ida[:,:,:2,3] = post_trans
+            
+            visual_depth_feature = depth_digit[:, :self.depth_channels]
+            image_scales = self.get_image_scale(intrins, ida)
+            offset_per_meter = self.depth_channels / self.grid_config['depth'][1] * self.min_focal_length / image_scales.view(-1, 1)
+            offset = self.frustum_virtual[:, 0, 0, 2].view(1, -1) * offset_per_meter
+            
+            real_depth_feature = self.depth_sampling(visual_depth_feature, offset)
+            depth = real_depth_feature.softmax(1)
+            
         bev_feat, depth = self.view_transform(input, depth, tran_feat)
         return bev_feat, depth
 
@@ -568,11 +644,10 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
     @force_fp32()
     def get_depth_loss(self, depth_labels, depth_preds):
         """
-        Args:
-            depth_labels: (B, N_views, img_h, img_w)
-            depth_preds: (B*N_views, D, fH, fW)
-        Returns:
-
+            Args:
+                depth_labels: (B, N_views, img_h, img_w)
+                depth_preds: (B*N_views, D, fH, fW)
+            Returns:
         """
         depth_labels = self.get_downsampled_gt_depth(depth_labels)      # (B*N_views*fH*fW, D)
         # (B*N_views, D, fH, fW) --> (B*N_views, fH, fW, D) --> (B*N_views*fH*fW, D)
@@ -598,3 +673,4 @@ class LSSViewTransformerBEVStereo(LSSViewTransformerBEVDepth):
         self.cv_frustum = self.create_frustum(kwargs['grid_config']['depth'],
                                               kwargs['input_size'],
                                               downsample=4)
+
