@@ -31,14 +31,14 @@ data_config = {
 grid_config = {
     'x': [-40, 40, 0.4],
     'y': [-40, 40, 0.4],
-    'z': [-1, 5.4, 6.4],
+    'z': [-1, 5.4, 0.4],
     'depth': [1.0, 45.0, 0.5],
 }
 
 voxel_size = [0.1, 0.1, 0.2]
 
 numC_Trans = 64
-
+numC_Trans_pool = 64
 multi_adj_frame_id_cfg = (1, 1, 1)
 
 if len(range(*multi_adj_frame_id_cfg)) == 0:
@@ -74,12 +74,13 @@ model = dict(
         grid_config=grid_config,
         input_size=data_config['input_size'],
         in_channels=256,
-        out_channels=numC_Trans,
+        out_channels=numC_Trans_pool,
         sid=False,
         collapse_z=True,
         downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
         ),
+    down_sample_for_3d_pooling=[numC_Trans_pool*16, numC_Trans],
     img_bev_encoder_backbone=dict(
         type='CustomResNet',
         numC_input=numC_Trans + numC_Trans_cat,
@@ -104,7 +105,7 @@ model = dict(
             loss_weight=1.0,
         ),
         sololoss=True,
-        loss_weight=1,
+        loss_weight=10,
     ),
     det_loss_weight = 1,
     occ_loss_weight = 1,
@@ -128,7 +129,7 @@ train_pipeline = [
         type='PrepareImageInputs',
         is_train=True,
         data_config=data_config,
-        sequential=False),
+        sequential=True),
     dict(
         type='LoadAnnotationsBEVDepth',
         bda_aug_conf=bda_aug_conf,
@@ -192,7 +193,9 @@ share_data_config = dict(
     modality=input_modality,
     stereo=False,
     filter_empty_gt=False,
-    img_info_prototype='bevdet',
+    # img_info_prototype='bevdet4d',
+    img_info_prototype='bevdet4d',
+    multi_adj_frame_id_cfg=multi_adj_frame_id_cfg,
 )
 
 test_data_config = dict(
@@ -213,7 +216,8 @@ data = dict(
         use_valid_flag=True,
         # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
         # and box_type_3d='Depth' in sunrgbd and scannet dataset.
-        box_type_3d='LiDAR'),
+        box_type_3d='LiDAR',
+        ),
     val=test_data_config,
     test=test_data_config
     )

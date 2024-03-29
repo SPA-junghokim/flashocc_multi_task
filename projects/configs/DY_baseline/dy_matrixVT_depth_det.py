@@ -35,7 +35,14 @@ grid_config = {
     'depth': [1.0, 45.0, 0.5],
 }
 
+# original class_range
+# class_range = {'car': 50, 'truck': 50, 'bus': 50, 'trailer': 50, 'construction_vehicle': 50, 'pedestrian': 40, 'motorcycle': 40, 'bicycle': 40, 'traffic_cone': 30, 'barrier': 30}
+class_range = {'car': 40,'truck': 40,'bus': 40,'trailer': 40,'construction_vehicle': 40,
+    'pedestrian': 30, 'motorcycle': 30,'bicycle': 30,'traffic_cone': 25,'barrier': 25}
+            
 voxel_size = [0.1, 0.1, 0.2]
+out_size_factor = 4 # This config is for detection. (8 -> 128x128, 4 -> 256x256)
+velocity_code_weight = 1.0
 
 numC_Trans = 64
 
@@ -70,7 +77,7 @@ model = dict(
         start_level=0,
         out_ids=[0]),
     img_view_transformer=dict(
-        type='LSSViewTransformerBEVDepth',
+        type='MatrixVT',
         grid_config=grid_config,
         input_size=data_config['input_size'],
         in_channels=256,
@@ -78,6 +85,7 @@ model = dict(
         sid=False,
         collapse_z=True,
         downsample=16,
+        matrixVT_grid_config = grid_config,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
         ),
     img_bev_encoder_backbone=dict(
@@ -88,24 +96,73 @@ model = dict(
         type='FPN_LSS',
         in_channels=numC_Trans * 8 + numC_Trans * 2,
         out_channels=256),
-    occ_head=dict(
-        type='BEVOCCHead2D',
-        in_dim=256,
-        out_dim=256,
-        Dz=16,
-        use_mask=True,
-        num_classes=18,
-        use_predicter=True,
-        class_wise=False,
-        loss_occ=dict(
-            type='CrossEntropyLoss',
-            use_sigmoid=False,
-            ignore_index=255,
-            loss_weight=1.0,
-        ),
-        sololoss=True,
-        loss_weight=3,
-    ),
+    
+    
+    
+    # Same detection head used in BEVDet, BEVDepth, etc
+    pts_bbox_head=dict(
+        type='BEV_CenterHead',
+        in_channels=256,
+        tasks=[
+            dict(num_class=1, class_names=['car']),
+            dict(num_class=2, class_names=['truck', 'construction_vehicle']),
+            dict(num_class=2, class_names=['bus', 'trailer']),
+            dict(num_class=1, class_names=['barrier']),
+            dict(num_class=2, class_names=['motorcycle', 'bicycle']),
+            dict(num_class=2, class_names=['pedestrian', 'traffic_cone']),
+        ],
+        common_heads=dict(
+            reg=(2, 2), height=(1, 2), dim=(3, 2), rot=(2, 2), vel=(2, 2)),
+        share_conv_channel=64,
+        bbox_coder=dict(
+            type='CenterPointBBoxCoder',
+            pc_range=point_cloud_range[:2],
+            post_center_range=[-50.0, -50.0, -10.0, 50.0, 50.0, 10.0],
+            max_num=500,
+            score_threshold=0.1,
+            out_size_factor=out_size_factor,
+            voxel_size=voxel_size[:2],
+            code_size=9),
+        separate_head=dict(
+            type='SeparateHead', init_bias=-2.19, final_kernel=3),
+        loss_cls=dict(type='GaussianFocalLoss', reduction='mean'),
+        loss_bbox=dict(type='L1Loss', reduction='mean', loss_weight=0.25),
+        norm_bbox=True),
+    # model training and testing settings
+    train_cfg=dict(
+        pts=dict(
+            point_cloud_range=point_cloud_range,
+            grid_size=[800, 800, 40],
+            voxel_size=voxel_size,
+            out_size_factor=out_size_factor,
+            dense_reg=1,
+            gaussian_overlap=0.1,
+            max_objs=500,
+            min_radius=2,
+            code_weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 
+                          velocity_code_weight, velocity_code_weight])),
+    test_cfg=dict(
+        pts=dict(
+            pc_range=point_cloud_range[:2],
+            post_center_limit_range=[-50.0, -50.0, -10.0, 50.0, 50.0, 10.0],
+            max_per_img=500,
+            max_pool_nms=False,
+            min_radius=[4, 12, 10, 1, 0.85, 0.175],
+            score_threshold=0.1,
+            out_size_factor=out_size_factor,
+            voxel_size=voxel_size[:2],
+            # nms_type='circle',
+            pre_max_size=1000,
+            post_max_size=83,
+            # nms_thr=0.2,
+
+            # Scale-NMS
+            nms_type=['rotate', 'rotate', 'rotate', 'circle', 'rotate', 
+                      'rotate'],
+            nms_thr=[0.2, 0.2, 0.2, 0.2, 0.2, 0.5],
+            nms_rescale_factor=[1.0, [0.7, 0.7], [0.4, 0.55], 1.1, [1.0, 1.0], 
+                                [4.5, 9.0]]
+        )),
     det_loss_weight = 1,
     occ_loss_weight = 1,
     seg_loss_weight = 1.,
@@ -128,13 +185,13 @@ train_pipeline = [
         type='PrepareImageInputs',
         is_train=True,
         data_config=data_config,
-        sequential=False),
+        sequential=True),
     dict(
         type='LoadAnnotationsBEVDepth',
         bda_aug_conf=bda_aug_conf,
         classes=class_names,
         is_train=True),
-    dict(type='LoadOccGTFromFile', ignore_nonvisible=True),
+    # dict(type='LoadOccGTFromFile'),
     dict(
         type='LoadPointsFromFile',
         coord_type='LIDAR',
@@ -142,10 +199,11 @@ train_pipeline = [
         use_dim=5,
         file_client_args=file_client_args),
     dict(type='PointToMultiViewDepth', downsample=1, grid_config=grid_config),
+    dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
+    dict(type='ObjectNameFilter', classes=class_names),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
-        type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera'])
+        type='Collect3D', keys=['img_inputs', 'gt_depth', 'gt_bboxes_3d', 'gt_labels_3d'])
 ]
 
 test_pipeline = [
@@ -172,8 +230,7 @@ test_pipeline = [
                 type='DefaultFormatBundle3D',
                 class_names=class_names,
                 with_label=False),
-            dict(type='Collect3D', keys=['points', 'img_inputs', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera'])
+            dict(type='Collect3D', keys=['points', 'img_inputs'])
         ])
 ]
 
@@ -192,12 +249,14 @@ share_data_config = dict(
     modality=input_modality,
     stereo=False,
     filter_empty_gt=False,
-    img_info_prototype='bevdet',
+    img_info_prototype='bevdet4d',
+    multi_adj_frame_id_cfg=multi_adj_frame_id_cfg,
+    class_range=class_range
 )
 
 test_data_config = dict(
     pipeline=test_pipeline,
-    # ann_file=data_root + 'data10_seg.pkl')
+    # ann_file=data_root + 'data10_seg_val.pkl')
     ann_file=data_root + 'bevdetv2-nuscenes_infos_val_seg.pkl')
 
 data = dict(
@@ -206,14 +265,16 @@ data = dict(
     train=dict(
         data_root=data_root,
         ann_file=data_root + 'bevdetv2-nuscenes_infos_train_seg.pkl',
-        # ann_file=data_root + 'data10_seg.pkl',
+        # ann_file=data_root + 'data10_seg_val.pkl',
         pipeline=train_pipeline,
         classes=class_names,
         test_mode=False,
         use_valid_flag=True,
         # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
         # and box_type_3d='Depth' in sunrgbd and scannet dataset.
-        box_type_3d='LiDAR'),
+        box_type_3d='LiDAR',
+        class_range=class_range
+        ),
     val=test_data_config,
     test=test_data_config
     )
@@ -223,6 +284,7 @@ for key in ['val', 'train', 'test']:
 
 # Optimizer
 optimizer = dict(type='AdamW', lr=1e-4, weight_decay=1e-2)
+# optimizer = dict(type='AdamW', lr=5e-3, weight_decay=1e-2)
 optimizer_config = dict(grad_clip=dict(max_norm=5, norm_type=2))
 lr_config = dict(
     policy='step',
@@ -243,8 +305,15 @@ custom_hooks = [
 # load_from = "ckpts/bevdet-r50-cbgs.pth"
 # fp16 = dict(loss_scale='dynamic')
 evaluation = dict(interval=1, start=24, pipeline=test_pipeline)
+
 checkpoint_config = dict(interval=1, max_keep_ckpts=5)
 
+log_config = dict(
+    interval=50,
+    hooks=[
+        dict(type='TextLoggerHook'),
+        dict(type='TensorboardLoggerHook')
+    ])
 
 # with det pretrain; use_mask=True; out_dim=256,
 # ===> per class IoU of 6019 samples:

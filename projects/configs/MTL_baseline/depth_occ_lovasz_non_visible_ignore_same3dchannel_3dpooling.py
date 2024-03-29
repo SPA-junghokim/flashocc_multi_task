@@ -31,14 +31,14 @@ data_config = {
 grid_config = {
     'x': [-40, 40, 0.4],
     'y': [-40, 40, 0.4],
-    'z': [-1, 5.4, 6.4],
+    'z': [-1, 5.4, 0.4],
     'depth': [1.0, 45.0, 0.5],
 }
 
 voxel_size = [0.1, 0.1, 0.2]
 
-numC_Trans = 64
-
+numC_Trans = 32
+numC_Trans_pool = 32
 multi_adj_frame_id_cfg = (1, 1, 1)
 
 if len(range(*multi_adj_frame_id_cfg)) == 0:
@@ -74,20 +74,32 @@ model = dict(
         grid_config=grid_config,
         input_size=data_config['input_size'],
         in_channels=256,
-        out_channels=numC_Trans,
+        out_channels=numC_Trans_pool,
         sid=False,
         collapse_z=True,
         downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
         ),
+    down_sample_for_3d_pooling=[numC_Trans_pool*16, numC_Trans],
     img_bev_encoder_backbone=dict(
         type='CustomResNet',
-        numC_input=numC_Trans + numC_Trans_cat,
-        num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
-    img_bev_encoder_neck=dict(
-        type='FPN_LSS',
-        in_channels=numC_Trans * 8 + numC_Trans * 2,
-        out_channels=256),
+        numC_input=numC_Trans,
+        num_layer=[1, 2, 4],
+        with_cp=False,
+        num_channels=[numC_Trans, numC_Trans*2, numC_Trans*4],
+        stride=[1, 2, 2],
+        backbone_output_ids=[0, 1, 2]),
+    img_bev_encoder_neck=dict(type='LSSFPN2D',
+                              in_channels=numC_Trans*7,
+                              out_channels=256),
+    # img_bev_encoder_backbone=dict(
+    #     type='CustomResNet',
+    #     numC_input=numC_Trans + numC_Trans_cat,
+    #     num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
+    # img_bev_encoder_neck=dict(
+    #     type='LSSFPN2D',
+    #     in_channels=numC_Trans * 8 + numC_Trans * 2,
+    #     out_channels=256),
     occ_head=dict(
         type='BEVOCCHead2D',
         in_dim=256,
@@ -104,7 +116,7 @@ model = dict(
             loss_weight=1.0,
         ),
         sololoss=True,
-        loss_weight=7,
+        loss_weight=10,
     ),
     det_loss_weight = 1,
     occ_loss_weight = 1,
@@ -215,7 +227,8 @@ data = dict(
         use_valid_flag=True,
         # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
         # and box_type_3d='Depth' in sunrgbd and scannet dataset.
-        box_type_3d='LiDAR'),
+        box_type_3d='LiDAR',
+        ),
     val=test_data_config,
     test=test_data_config
     )
