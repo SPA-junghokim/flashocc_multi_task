@@ -641,8 +641,6 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                 depth_preds: (B*N_views, D, fH, fW)
             Returns:
         """
-        breakpoint()
-        
         depth_labels = self.get_downsampled_gt_depth(depth_labels)      # (B*N_views*fH*fW, D)
         # (B*N_views, D, fH, fW) --> (B*N_views, fH, fW, D) --> (B*N_views*fH*fW, D)
         depth_preds = depth_preds.permute(0, 2, 3,
