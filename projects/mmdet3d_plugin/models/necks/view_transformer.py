@@ -438,11 +438,13 @@ class LSSViewTransformer(BaseModule):
 @NECKS.register_module()
 class LSSViewTransformerBEVDepth(LSSViewTransformer):
     def __init__(self, loss_depth_weight=3.0, depthnet_cfg=dict(), virtual_depth=False, 
-                 min_focal_length=800, virtual_depth_bin=180, min_ida_scale=0, **kwargs):
+                 min_focal_length=800, virtual_depth_bin=180, min_ida_scale=0, dpeht_render_loss=False,
+                 **kwargs):
         super(LSSViewTransformerBEVDepth, self).__init__(**kwargs)
         self.loss_depth_weight = loss_depth_weight
         self.depth_channels = self.D
         self.virtual_depth=virtual_depth
+        self.dpeht_render_loss = dpeht_render_loss
         if self.virtual_depth:
             self.depth_channels = virtual_depth_bin
             self.frustum_virtual = self.create_frustum_virtual(self.grid_config['depth'],self.input_size, self.downsample)
@@ -639,6 +641,8 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                 depth_preds: (B*N_views, D, fH, fW)
             Returns:
         """
+        breakpoint()
+        
         depth_labels = self.get_downsampled_gt_depth(depth_labels)      # (B*N_views*fH*fW, D)
         # (B*N_views, D, fH, fW) --> (B*N_views, fH, fW, D) --> (B*N_views*fH*fW, D)
         depth_preds = depth_preds.permute(0, 2, 3,

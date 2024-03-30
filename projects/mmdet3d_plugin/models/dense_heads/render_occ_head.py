@@ -1,0 +1,202 @@
+# Copyright (c) OpenMMLab. All rights reserved.
+import torch
+from mmcv.cnn import ConvModule
+from mmcv.runner import BaseModule
+from torch import nn
+import numpy as np
+from mmdet3d.models.builder import HEADS, build_loss, build_head
+from .lovasz_losses import lovasz_softmax
+from torch.nn import functional as F
+
+nusc_class_frequencies = np.array([
+    944004,
+    1897170,
+    152386,
+    2391677,
+    16957802,
+    724139,
+    189027,
+    2074468,
+    413451,
+    2384460,
+    5916653,
+    175883646,
+    4275424,
+    51393615,
+    61411620,
+    105975596,
+    116424404,
+    1892500630
+])
+
+
+@HEADS.register_module()
+class RenderOCCHead2D(BaseModule):
+    def __init__(self,
+                 in_dim=256,
+                 out_dim=256,
+                 Dz=16,
+                 use_mask=True,
+                 num_classes=18,
+                 use_predicter=False,
+                 class_wise=False,
+                 class_balance=False,
+                 loss_occ=None,
+                 sololoss=False,
+                 weight=[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0],
+                 loss_weight=1,
+                 channel_down_for_3d=False,
+                 
+                 use_3d_loss=True,
+                 nerf_head=None,
+                 ):
+        super(RenderOCCHead2D, self).__init__()
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+        self.Dz = Dz
+        self.final_conv = ConvModule(
+            self.in_dim,
+            out_dim,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=True,
+            conv_cfg=dict(type='Conv2d')
+        )
+        
+
+        self.use_mask = use_mask
+        self.num_classes = num_classes
+        self.class_balance = class_balance
+        
+        self.channel_down_for_3d = channel_down_for_3d
+        if self.channel_down_for_3d:
+            self.channel_down_for_3d = nn.Linear(channel_down_for_3d, self.in_dim)
+            
+        
+        
+        self.use_3d_loss = use_3d_loss
+        
+        
+        if self.class_balance:
+            class_weights = torch.from_numpy(1 / np.log(nusc_class_frequencies[:17] + 0.001)).float()
+            class_weights = class_weights / class_weights.sum()
+            self.class_weights = class_weights
+            self.semantic_loss = nn.CrossEntropyLoss(
+                weight=self.class_weights, reduction="mean"
+            )
+        else:
+            self.semantic_loss = nn.CrossEntropyLoss(reduction="mean")
+            
+        self.loss_occ = build_loss(loss_occ)
+
+        self.density_mlp = nn.Sequential(
+            nn.Linear(self.out_dim, self.out_dim * 2),
+            nn.Softplus(),
+            nn.Linear(self.out_dim * 2, 2 * Dz),
+            nn.Softplus(),
+        )
+        
+        self.semantic_mlp = nn.Sequential(
+            nn.Linear(self.out_dim, self.out_dim * 2),
+            nn.Softplus(),
+            nn.Linear(self.out_dim * 2, (num_classes - 1) * Dz),
+        )
+        
+        if nerf_head is not None:
+            self.nerf_head = build_head(nerf_head)
+        else:
+            self.nerf_head = None
+        
+    def forward(self, img_feats):
+        """
+        Args:
+            img_feats: (B, C, Dy, Dx)
+
+        Returns:
+
+        """
+        if self.channel_down_for_3d:
+            B, C, Z, H, W = img_feats.shape
+            img_feats = img_feats.reshape(B, C*Z, H, W).permute(0, 2, 3, 1)
+            img_feats = self.channel_down_for_3d(img_feats).permute(0, 3, 1, 2)
+            
+        occ_pred = self.final_conv(img_feats).permute(0, 3, 2, 1)
+        bs, Dx, Dy = occ_pred.shape[:3]
+        # (B, Dx, Dy, C) --> (B, Dx, Dy, 2*C) --> (B, Dx, Dy, Dz*n_cls)
+        density_prob = self.density_mlp(occ_pred)
+        density_prob = density_prob.view(bs, Dx, Dy, self.Dz, 2)
+
+        # (B, Dx, Dy, C) --> (B, Dx, Dy, 2*C) --> (B, Dx, Dy, Dz*(N_cls-1))
+        semantic = self.semantic_mlp(occ_pred)
+        # (B, Dx, Dy, Dz*(N_cls-1)) --> (B, Dx, Dy, Dz, N_cls-1)
+        semantic = semantic.view(bs, Dx, Dy, self.Dz, self.num_classes-1)
+
+        return [density_prob, semantic]
+
+
+    def loss_3d(self, voxel_semantics, mask_camera, density_prob, semantic):
+        voxel_semantics = voxel_semantics.reshape(-1)   # (B*Dx*Dy*Dz, )
+        density_prob = density_prob.reshape(-1, 2)      # (B*Dx*Dy*Dz, 2)
+        semantic = semantic.reshape(-1, self.num_classes - 1)
+        density_target = (voxel_semantics == 17).long()
+        semantic_mask = voxel_semantics != 17
+
+        mask_camera = mask_camera.reshape(-1)
+        num_total_samples = mask_camera.sum()
+        # compute loss
+        loss_geo = self.loss_occ(density_prob, density_target, mask_camera, avg_factor=num_total_samples)
+
+        semantic_mask = torch.logical_and(semantic_mask, mask_camera)
+        loss_sem = self.semantic_loss(semantic[semantic_mask], voxel_semantics[semantic_mask].long())
+
+        loss_ = dict()
+        loss_['loss_3d_geo'] = loss_geo
+        loss_['loss_3d_sem'] = loss_sem
+        return loss_
+
+    def loss(self, occ_pred, voxel_semantics, mask_camera, **kwargs):
+        """
+        Args:
+            occ_pred: (B, Dx, Dy, Dz, n_cls)
+            voxel_semantics: (B, Dx, Dy, Dz)
+            mask_camera: (B, Dx, Dy, Dz)
+        Returns:
+
+        """
+        density_prob, semantic = occ_pred
+        density = density_prob[..., 0]   # (B, Dx, Dy, Dz)
+        
+        loss = dict()
+        
+        if self.use_3d_loss:  # 3D loss
+            voxel_semantics = voxel_semantics.long()
+            mask_camera = mask_camera.to(torch.int32)   # (B, Dx, Dy, Dz)
+            loss_occ = self.loss_3d(voxel_semantics, mask_camera, density_prob, semantic)
+            loss.update(loss_occ)
+        if self.nerf_head:  # 2D rendering loss
+            loss_rendering = self.nerf_head(density, semantic, rays=kwargs['rays'], bda=kwargs['bda'])
+            loss.update(loss_rendering)
+                
+        return loss
+
+    def get_occ(self, occ_pred, img_metas=None):
+        """
+        Args:
+            occ_pred: (B, Dx, Dy, Dz, C)
+            img_metas:
+
+        Returns:
+            List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
+        """
+        density_prob, semantic = occ_pred
+        no_empty_mask = (density_prob.argmax(dim=-1) == 0)
+        semantic_res = semantic.argmax(-1)
+
+        B, H, W, Z, C = semantic.shape
+        occ = torch.ones((B, H, W, Z), dtype=semantic_res.dtype).to(semantic_res.device)
+        occ = occ * (self.num_classes - 1)
+        occ[no_empty_mask] = semantic_res[no_empty_mask]
+
+        occ = occ.squeeze(dim=0).cpu().numpy().astype(np.uint8)
+        return list(occ_res)
