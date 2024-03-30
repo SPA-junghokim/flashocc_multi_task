@@ -78,9 +78,6 @@ model = dict(
         sid=False,
         collapse_z=True,
         downsample=16,
-        virtual_depth=True,
-        virtual_depth_bin=180,
-        min_ida_scale=0.38*0.9,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
         ),
     img_bev_encoder_backbone=dict(
@@ -106,6 +103,8 @@ model = dict(
             ignore_index=255,
             loss_weight=1.0,
         ),
+        sololoss=True,
+        loss_weight=10,
     ),
     det_loss_weight = 1,
     occ_loss_weight = 1,
@@ -135,7 +134,7 @@ train_pipeline = [
         bda_aug_conf=bda_aug_conf,
         classes=class_names,
         is_train=True),
-    dict(type='LoadOccGTFromFile'),
+    dict(type='LoadOccGTFromFile', ignore_nonvisible=True),
     dict(
         type='LoadPointsFromFile',
         coord_type='LIDAR',
@@ -193,6 +192,7 @@ share_data_config = dict(
     modality=input_modality,
     stereo=False,
     filter_empty_gt=False,
+    # img_info_prototype='bevdet4d',
     img_info_prototype='bevdet4d',
     multi_adj_frame_id_cfg=multi_adj_frame_id_cfg,
 )
@@ -215,7 +215,8 @@ data = dict(
         use_valid_flag=True,
         # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
         # and box_type_3d='Depth' in sunrgbd and scannet dataset.
-        box_type_3d='LiDAR'),
+        box_type_3d='LiDAR',
+        ),
     val=test_data_config,
     test=test_data_config
     )
@@ -224,14 +225,14 @@ for key in ['val', 'train', 'test']:
     data[key].update(share_data_config)
 
 # Optimizer
-optimizer = dict(type='AdamW', lr=5e-5, weight_decay=1e-2)
+optimizer = dict(type='AdamW', lr=2e-5, weight_decay=1e-2)
 optimizer_config = dict(grad_clip=dict(max_norm=5, norm_type=2))
 lr_config = dict(
     policy='step',
     warmup='linear',
     warmup_iters=200,
     warmup_ratio=0.001,
-    step=[24, ])
+    step=[12, ])
 runner = dict(type='EpochBasedRunner', max_epochs=12)
 
 custom_hooks = [
@@ -245,7 +246,7 @@ custom_hooks = [
 # load_from = "ckpts/bevdet-r50-cbgs.pth"
 # fp16 = dict(loss_scale='dynamic')
 evaluation = dict(interval=1, start=12, pipeline=test_pipeline)
-checkpoint_config = dict(interval=3, max_keep_ckpts=3)
+checkpoint_config = dict(interval=1, max_keep_ckpts=5)
 
 
 # with det pretrain; use_mask=True; out_dim=256,
@@ -268,24 +269,3 @@ checkpoint_config = dict(interval=3, max_keep_ckpts=3)
 # ===> manmade - IoU = 37.89
 # ===> vegetation - IoU = 32.24
 # ===> mIoU of 6019 samples: 32.08
-
-
-#dy local
-# ===> others - IoU = 4.02
-# ===> barrier - IoU = 32.15
-# ===> bicycle - IoU = 0.01
-# ===> bus - IoU = 28.77
-# ===> car - IoU = 38.11
-# ===> construction_vehicle - IoU = 10.13
-# ===> motorcycle - IoU = 5.62
-# ===> pedestrian - IoU = 12.44
-# ===> traffic_cone - IoU = 8.11
-# ===> trailer - IoU = 17.03
-# ===> truck - IoU = 21.14
-# ===> driveable_surface - IoU = 76.46
-# ===> other_flat - IoU = 35.41
-# ===> sidewalk - IoU = 44.34
-# ===> terrain - IoU = 49.46
-# ===> manmade - IoU = 37.1
-# ===> vegetation - IoU = 29.72
-# ===> mIoU of 6019 samples: 26.47
