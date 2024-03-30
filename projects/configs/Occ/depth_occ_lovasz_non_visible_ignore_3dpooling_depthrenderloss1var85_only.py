@@ -80,6 +80,9 @@ model = dict(
         downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
         dpeht_render_loss=True,
+        variance_focus=0.85,
+        render_loss_depth_weight=1,
+        depth_loss_ce=False,  
         ),
     down_sample_for_3d_pooling=[numC_Trans_pool*16, numC_Trans],
     img_bev_encoder_backbone=dict(
