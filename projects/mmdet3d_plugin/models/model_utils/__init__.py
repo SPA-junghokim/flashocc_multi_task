@@ -1,3 +1,3 @@
-from .depthnet import DepthNet, Virtual_DepthNet
+from .depthnet import DepthNet
 
-__all__ = ['DepthNet', 'Virtual_DepthNet']
+__all__ = ['DepthNet']
