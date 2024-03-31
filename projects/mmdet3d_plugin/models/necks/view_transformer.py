@@ -438,13 +438,19 @@ class LSSViewTransformer(BaseModule):
 @NECKS.register_module()
 class LSSViewTransformerBEVDepth(LSSViewTransformer):
     def __init__(self, loss_depth_weight=3.0, depthnet_cfg=dict(), virtual_depth=False, 
-                 min_focal_length=800, virtual_depth_bin=180, min_ida_scale=0, dpeht_render_loss=False,
+                 min_focal_length=800, virtual_depth_bin=180, min_ida_scale=0, dpeht_render_loss=False, variance_focus=0.85, render_loss_depth_weight=1,
+                 depth_loss_ce = True,
                  **kwargs):
         super(LSSViewTransformerBEVDepth, self).__init__(**kwargs)
         self.loss_depth_weight = loss_depth_weight
         self.depth_channels = self.D
         self.virtual_depth=virtual_depth
+        
         self.dpeht_render_loss = dpeht_render_loss
+        self.variance_focus = variance_focus
+        self.render_loss_depth_weight = render_loss_depth_weight
+        self.depth_loss_ce = depth_loss_ce
+        
         if self.virtual_depth:
             self.depth_channels = virtual_depth_bin
             self.frustum_virtual = self.create_frustum_virtual(self.grid_config['depth'],self.input_size, self.downsample)
@@ -629,9 +635,9 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
 
         gt_depths = torch.where((gt_depths < self.D + 1) & (gt_depths >= 0.0),
                                 gt_depths, torch.zeros_like(gt_depths))     # (B*N_views, fH, fW)
-        gt_depths = F.one_hot(
+        gt_depths_onehot = F.one_hot(
             gt_depths.long(), num_classes=self.D + 1).view(-1, self.D + 1)[:, 1:]   # (B*N_views*fH*fW, D)
-        return gt_depths.float()
+        return gt_depths, gt_depths_onehot.float()
 
     @force_fp32()
     def get_depth_loss(self, depth_labels, depth_preds):
@@ -655,6 +661,35 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                 reduction='none',
             ).sum() / max(1.0, fg_mask.sum())
         return self.loss_depth_weight * depth_loss
+        depth_loss_dict = dict()
+        
+        depth_labels_value, depth_labels = self.get_downsampled_gt_depth(depth_labels)      # (B*N_views*fH*fW, D)
+        
+        if self.dpeht_render_loss:
+            transmittance = (self.grid_config['depth'][2] * depth_preds).cumsum(1)
+            depth_pred_rendered = (transmittance*(1-torch.exp(-self.grid_config['depth'][2] * depth_preds))).sum(1)
+            
+            fg_mask = depth_labels_value > 0.0
+            log_d = torch.log(depth_pred_rendered[fg_mask]) - torch.log(depth_labels_value[fg_mask])
+            depth_render_loss = torch.sqrt((log_d ** 2).mean() - self.variance_focus * (log_d.mean() ** 2))
+            depth_render_loss = depth_render_loss * self.render_loss_depth_weight
+            depth_loss_dict['loss_depth_render'] = depth_render_loss
+        
+        if self.depth_loss_ce:
+            # (B*N_views, D, fH, fW) --> (B*N_views, fH, fW, D) --> (B*N_views*fH*fW, D)
+            depth_preds = depth_preds.permute(0, 2, 3,
+                                            1).contiguous().view(-1, self.D)
+            fg_mask = torch.max(depth_labels, dim=1).values > 0.0
+            depth_labels = depth_labels[fg_mask]
+            depth_preds = depth_preds[fg_mask]
+            with autocast(enabled=False):
+                depth_loss = F.binary_cross_entropy(
+                    depth_preds,
+                    depth_labels,
+                    reduction='none',
+                ).sum() / max(1.0, fg_mask.sum())
+            depth_loss_dict['loss_depth'] = self.loss_depth_weight * depth_loss
+        return depth_loss_dict
 
 
 @NECKS.register_module()
@@ -666,3 +701,14 @@ class LSSViewTransformerBEVStereo(LSSViewTransformerBEVDepth):
                                               kwargs['input_size'],
                                               downsample=4)
 
+
+
+
+class silog_loss(nn.Module):
+    def __init__(self, variance_focus=0.85):
+        super(silog_loss, self).__init__()
+        self.variance_focus = variance_focus
+
+    def forward(self, depth_est, depth_gt):
+        d = torch.log(depth_est) - torch.log(depth_gt)
+        return torch.sqrt((d ** 2).mean() - self.variance_focus * (d.mean() ** 2))

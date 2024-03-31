@@ -131,7 +131,8 @@ class BEVDepth4D_MTL(BEVDepth4D):
         gt_depth = kwargs['gt_depth']   # (B, N_views, img_H, img_W)
         losses = dict()
         loss_depth = self.img_view_transformer.get_depth_loss(gt_depth, depth)
-        losses['loss_depth'] = loss_depth
+        losses.update(loss_depth)
+        # losses['loss_depth'] = loss_depth
         
         # Get box losses
         det_feats, occ_feats, seg_feats =  img_feats
