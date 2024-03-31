@@ -647,20 +647,6 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                 depth_preds: (B*N_views, D, fH, fW)
             Returns:
         """
-        depth_labels = self.get_downsampled_gt_depth(depth_labels)      # (B*N_views*fH*fW, D)
-        # (B*N_views, D, fH, fW) --> (B*N_views, fH, fW, D) --> (B*N_views*fH*fW, D)
-        depth_preds = depth_preds.permute(0, 2, 3,
-                                          1).contiguous().view(-1, self.D)
-        fg_mask = torch.max(depth_labels, dim=1).values > 0.0
-        depth_labels = depth_labels[fg_mask]
-        depth_preds = depth_preds[fg_mask]
-        with autocast(enabled=False):
-            depth_loss = F.binary_cross_entropy(
-                depth_preds,
-                depth_labels,
-                reduction='none',
-            ).sum() / max(1.0, fg_mask.sum())
-        return self.loss_depth_weight * depth_loss
         depth_loss_dict = dict()
         
         depth_labels_value, depth_labels = self.get_downsampled_gt_depth(depth_labels)      # (B*N_views*fH*fW, D)
