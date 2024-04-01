@@ -31,18 +31,15 @@ data_config = {
 grid_config = {
     'x': [-40, 40, 0.4],
     'y': [-40, 40, 0.4],
-    'z': [-1, 5.4, 6.4],
+    'z': [-1, 5.4, 0.4],
     'depth': [1.0, 45.0, 0.5],
 }
 
 voxel_size = [0.1, 0.1, 0.2]
 
 numC_Trans = 64
-
+numC_Trans_pool = 64
 multi_adj_frame_id_cfg = (1, 1, 1)
-
-use_EADF=True
-use_FGD=True
 
 if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
@@ -51,15 +48,13 @@ else:
 
 model = dict(
     type='BEVDepth4D_MTL',
-    use_EADF=use_EADF,
-    use_FGD=use_FGD,
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
     img_backbone=dict(
         type='ResNet',
         depth=50,
         num_stages=4,
-        out_indices=(2, 3),
+        out_indices=(1, 2, 3),
         frozen_stages=-1,
         norm_cfg=dict(type='BN', requires_grad=True),
         norm_eval=False,
@@ -69,7 +64,7 @@ model = dict(
     ),
     img_neck=dict(
         type='CustomFPN',
-        in_channels=[1024, 2048],
+        in_channels=[512, 1024, 2048],
         out_channels=256,
         num_outs=1,
         start_level=0,
@@ -79,14 +74,13 @@ model = dict(
         grid_config=grid_config,
         input_size=data_config['input_size'],
         in_channels=256,
-        out_channels=numC_Trans,
+        out_channels=numC_Trans_pool,
         sid=False,
         collapse_z=True,
-        downsample=16,
+        downsample=8,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
-        use_EADF=use_EADF,
-        use_FGD=use_FGD
         ),
+    down_sample_for_3d_pooling=[numC_Trans_pool*16, numC_Trans],
     img_bev_encoder_backbone=dict(
         type='CustomResNet',
         numC_input=numC_Trans + numC_Trans_cat,
@@ -210,7 +204,7 @@ test_data_config = dict(
     ann_file=data_root + 'bevdetv2-nuscenes_infos_val_seg.pkl')
 
 data = dict(
-    samples_per_gpu=2,
+    samples_per_gpu=4,
     workers_per_gpu=4,
     train=dict(
         data_root=data_root,

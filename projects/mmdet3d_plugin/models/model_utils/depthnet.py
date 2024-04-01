@@ -384,8 +384,7 @@ class DepthNet(nn.Module):
             x: (B*N_views, D+C_context, fH, fW)
         """
         mlp_input = self.bn(mlp_input.reshape(-1, mlp_input.shape[-1]))     # (B*N_views, 27)
-        x = self.reduce_conv(x)     # (B*N_views, C_mid, fH, fW)
-
+        x = self.reduce_conv(x)     # (B*N_views, C_mid, fH, fW)        
         # (B*N_views, 27) --> (B*N_views, C_mid) --> (B*N_views, C_mid, 1, 1)
         context_se = self.context_mlp(mlp_input)[..., None, None]
         context = self.context_se(x, context_se)    # (B*N_views, C_mid, fH, fW)
@@ -416,7 +415,10 @@ class DepthNet(nn.Module):
         else:
             # 3*res blocks +ASPP/DCN + Conv(c_mid-->D)
             depth = self.depth_conv(depth)  # x: (B*N_views, C_mid, fH, fW) --> (B*N_views, D, fH, fW)
-        return torch.cat([depth, context], dim=1)
+        if ea_lss:
+            return torch.cat([depth, context], dim=1), x
+        else:
+            return torch.cat([depth, context], dim=1)
 
 
 class DepthAggregation(nn.Module):

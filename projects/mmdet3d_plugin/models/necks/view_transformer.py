@@ -438,7 +438,7 @@ class LSSViewTransformer(BaseModule):
 class LSSViewTransformerBEVDepth(LSSViewTransformer):
     def __init__(self, loss_depth_weight=3.0, depthnet_cfg=dict(), virtual_depth=False, 
                  min_focal_length=800, virtual_depth_bin=180, min_ida_scale=0,use_FGD=False, use_EADF=False, dpeht_render_loss=False, variance_focus=0.85, render_loss_depth_weight=1,
-                 depth_loss_ce = True, loss_EADF_depth_weight=10.0, loss_FGD_depth_weight=10.0, **kwargs):
+                 depth_loss_ce = True, depth_loss_focal=False, loss_EADF_depth_weight=10.0, loss_FGD_depth_weight=10.0, ealss_loc=None, context_residual=False,**kwargs):
         super(LSSViewTransformerBEVDepth, self).__init__(**kwargs)
         self.loss_depth_weight = loss_depth_weight
         self.depth_channels = self.D
@@ -448,7 +448,12 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         self.variance_focus = variance_focus
         self.render_loss_depth_weight = render_loss_depth_weight
         self.depth_loss_ce = depth_loss_ce
+        self.depth_loss_focal = depth_loss_focal
         
+        if self.depth_loss_focal:
+            self.depth_focalloss = build_loss(dict(type="FocalLoss"))
+            self.loss_depth_weight = 10    
+            
         if self.virtual_depth:
             self.depth_channels = virtual_depth_bin
             self.frustum_virtual = self.create_frustum_virtual(self.grid_config['depth'],self.input_size, self.downsample)
@@ -470,11 +475,20 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         self.loss_predict_upsampledepth = build_loss(dict(type="FocalLoss"))
         self.loss_FGD_depth_weight = loss_FGD_depth_weight
         self.loss_EADF_depth_weight = loss_EADF_depth_weight
+        self.ealss_loc = ealss_loc
+        
+        self.context_residual = context_residual
+        if self.context_residual:
+            self.prepare_residual = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=1, padding=0)
 
         if self.use_FGD:
-            self.upsample_channel = 128
+            if self.ealss_loc == 'after_depthnet' :
+                FGD_input_channel = self.depth_channels + self.out_channels
+            elif self.ealss_loc == 'before_depthnet' or self.ealss_loc == 'in_depthnet':
+                FGD_input_channel = self.in_channels
+            self.upsample_channel = 64
             self.upsample_depth = nn.Sequential(
-                nn.ConvTranspose2d(self.depth_channels, self.upsample_channel, kernel_size=5, padding=2, stride=2, output_padding=1, bias=False),
+                nn.ConvTranspose2d(FGD_input_channel, self.upsample_channel, kernel_size=5, padding=2, stride=2, output_padding=1, bias=False),
                 nn.BatchNorm2d(self.upsample_channel),
                 nn.ReLU(),
                 nn.ConvTranspose2d(self.upsample_channel, self.upsample_channel, kernel_size=5, padding=2, stride=2, output_padding=1, bias=False),
@@ -483,9 +497,9 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                 nn.ConvTranspose2d(self.upsample_channel, self.upsample_channel, kernel_size=5, padding=2, stride=2, output_padding=1, bias=False),
                 nn.BatchNorm2d(self.upsample_channel),
                 nn.ReLU(),
-                nn.ConvTranspose2d(self.upsample_channel, self.upsample_channel, kernel_size=5, padding=2, stride=2, output_padding=1, bias=False),
-                nn.BatchNorm2d(self.upsample_channel),
-                nn.ReLU(),
+                # nn.ConvTranspose2d(self.upsample_channel, self.upsample_channel, kernel_size=5, padding=2, stride=2, output_padding=1, bias=False),
+                # nn.BatchNorm2d(self.upsample_channel),
+                # nn.ReLU(),
                 nn.ConvTranspose2d(self.upsample_channel, self.upsample_channel, kernel_size=5, padding=2, bias=False),
                 nn.BatchNorm2d(self.upsample_channel),
                 nn.ReLU(),
@@ -596,14 +610,32 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         (x, rots, trans, intrins, post_rots, post_trans, bda, mlp_input) = input[:8]
         B, N, C, H, W = x.shape
         x = x.view(B * N, C, H, W)      # (B*N_views, C, fH, fW)
-        x = self.depth_net(x, mlp_input, stereo_metas)      # (B*N_views, D+C_context, fH, fW)
+        if self.context_residual:
+            x_for_residual = self.prepare_residual(x)
+            
+        if self.ealss_loc == 'before_depthnet':
+            fine_depth = self.upsample_depth(x)
+            
+        if self.ealss_loc == 'in_depthnet':
+            x, middle_feat = self.depth_net(x, mlp_input, stereo_metas, ea_lss=True)      # (B*N_views, D+C_context, fH, fW)
+            fine_depth = self.upsample_depth(middle_feat)
+        else:
+            x = self.depth_net(x, mlp_input, stereo_metas)      # (B*N_views, D+C_context, fH, fW)
+        
+        
         depth_digit = x[:, :self.depth_channels, ...]    # (B*N_views, D, fH, fW)
+        if self.depth_loss_focal:
+            self.depth_feat = depth_digit
         tran_feat = x[:, self.depth_channels:self.depth_channels + self.out_channels, ...]    # (B*N_views, C_context, fH, fW)
+        if self.context_residual:
+            tran_feat = tran_feat + x_for_residual
+        
         depth = depth_digit.softmax(dim=1)  # (B*N_views, D, fH, fW)
         
-        if self.use_FGD:
-            fine_depth = self.upsample_depth(depth_digit)
-        else:
+        if self.ealss_loc == 'after_depthnet':
+            fine_depth = self.upsample_depth(x)
+        
+        if self.ealss_loc == None:
             fine_depth = None
 
         if self.virtual_depth:
@@ -620,7 +652,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             
             real_depth_feature = self.depth_sampling(visual_depth_feature, offset)
             depth = real_depth_feature.softmax(1)
-            
+        
         bev_feat, depth = self.view_transform(input, depth, tran_feat)
         
         return bev_feat, depth, fine_depth
@@ -678,9 +710,8 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             Returns:
         """
         depth_loss_dict = dict()
-        
+        breakpoint()
         depth_labels_value, depth_labels = self.get_downsampled_gt_depth(depth_labels)      # (B*N_views*fH*fW, D)
-        
         if self.dpeht_render_loss:
             transmittance = (self.grid_config['depth'][2] * depth_preds).cumsum(1)
             depth_pred_rendered = (transmittance*(1-torch.exp(-self.grid_config['depth'][2] * depth_preds))).sum(1)
@@ -690,21 +721,34 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             depth_render_loss = torch.sqrt((log_d ** 2).mean() - self.variance_focus * (log_d.mean() ** 2))
             depth_render_loss = depth_render_loss * self.render_loss_depth_weight
             depth_loss_dict['loss_depth_render'] = depth_render_loss
-        
         if self.depth_loss_ce:
-            # (B*N_views, D, fH, fW) --> (B*N_views, fH, fW, D) --> (B*N_views*fH*fW, D)
-            depth_preds = depth_preds.permute(0, 2, 3,
-                                            1).contiguous().view(-1, self.D)
-            fg_mask = torch.max(depth_labels, dim=1).values > 0.0
-            depth_labels = depth_labels[fg_mask]
-            depth_preds = depth_preds[fg_mask]
-            with autocast(enabled=False):
-                depth_loss = F.binary_cross_entropy(
-                    depth_preds,
-                    depth_labels,
-                    reduction='none',
-                ).sum() / max(1.0, fg_mask.sum())
-            depth_loss_dict['loss_depth'] = self.loss_depth_weight * depth_loss
+            if self.depth_loss_focal:
+                depth_preds = self.depth_feat
+                # (B*N_views*fH*fW, D) -> (B*N_views*fH*fW) one hot으로 distance 표기에서 실제 distance 값으로 변환
+                depth_labels_distance = torch.argmax(depth_labels, dim=1) 
+                depth_labels_distance = depth_labels_distance / 2.0
+                mask = torch.nonzero((depth_labels_distance >= 1.0) * (depth_labels_distance < 45.0)).squeeze(1) # [33974]
+                depth_labels_distance = depth_labels_distance[mask]
+                depth_labels_distance = (depth_labels_distance - 1.0) // 0.5
+                # (B*N_views, D, fH, fW) --> (B*N_views, fH, fW, D) --> (B*N_views*fH*fW, D) -> distance GT 있는곳만 mask
+                depth_preds = depth_preds.permute(0, 2, 3, 1).contiguous().view(-1, self.D)[mask, :]
+                depth_loss = self.depth_focalloss(depth_preds, depth_labels_distance.long())
+                
+                depth_loss_dict['loss_depth'] = self.loss_depth_weight * depth_loss
+            else:
+                # (B*N_views, D, fH, fW) --> (B*N_views, fH, fW, D) --> (B*N_views*fH*fW, D)
+                depth_preds = depth_preds.permute(0, 2, 3,
+                                                1).contiguous().view(-1, self.D)
+                fg_mask = torch.max(depth_labels, dim=1).values > 0.0
+                depth_labels = depth_labels[fg_mask]
+                depth_preds = depth_preds[fg_mask]
+                with autocast(enabled=False):
+                    depth_loss = F.binary_cross_entropy(
+                        depth_preds,
+                        depth_labels,
+                        reduction='none',
+                    ).sum() / max(1.0, fg_mask.sum())
+                depth_loss_dict['loss_depth'] = self.loss_depth_weight * depth_loss
         return depth_loss_dict
 
     @force_fp32()
@@ -716,10 +760,10 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             Returns:
         """
         depth_label = depth_labels.reshape(-1)
-        mask = torch.nonzero((depth_label >= 1.0) * (depth_label < 45.0)).squeeze(1)
+        mask = torch.nonzero((depth_label >= 1.0) * (depth_label < 45.0)).squeeze(1) # [33974]
         depth_label = depth_label[mask]
-        pre_depth = pre_depth.permute(0, 2, 3, 1).reshape(-1, self.D)[mask, :]
-        depth_label = (depth_label - 1.0) // 0.5
+        pre_depth = pre_depth.permute(0, 2, 3, 1).reshape(-1, self.D)[mask, :] # [2162688, 88] -> [33974, 88]
+        depth_label = (depth_label - 1.0) // 2
         loss_predict_upsampledepth = self.loss_predict_upsampledepth(
             pre_depth, depth_label.long(),
         )
@@ -736,7 +780,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         """
         B, N, C, H, W = max_depth.size()
         max_depth = torch.clamp(max_depth, min=1.0, max=45.0)
-        max_depth = (max_depth - 1.0) // 0.5
+        max_depth = (max_depth - 1.0) // 2.0
         pre_depth = pre_depth.permute(0, 2, 3, 1).reshape(B*N, H, W, self.D).reshape(-1, self.D)
         max_depth = max_depth.permute(0, 1, 3, 4, 2).reshape(B*N, H, W, 1).reshape(-1)
         weight = (torch.abs(max_grad) / torch.abs(max_grad).reshape(-1).max(dim=0)[0]).reshape(-1)
