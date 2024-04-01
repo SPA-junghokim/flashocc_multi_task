@@ -30,8 +30,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
                  seg_bev_encoder_neck=None,
                  detection_backbone=False,
                  detection_neck=False,
-                 use_EADF=False,
-                 use_FGD=False,
+                 imgfeat_32x88=False,
                  **kwargs):
         super(BEVDepth4D_MTL, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
                                              img_bev_encoder_neck=img_bev_encoder_neck,**kwargs)
@@ -65,7 +64,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
         self.detection_backbone = detection_backbone
         self.detection_neck = detection_neck
         
-        
         if occ_bev_encoder_backbone is not None:
             self.occ_bev_encoder_backbone = builder.build_backbone(occ_bev_encoder_backbone)
         else:
@@ -84,40 +82,11 @@ class BEVDepth4D_MTL(BEVDepth4D):
         else:
             self.seg_bev_encoder_neck = None
 
-
-        self.use_EADF = use_EADF
-        self.use_FGD = use_FGD
-
-    def prepare_EADF(
-            self,
-            depth,
-            step=7,
-        ):
-        B, N, C, H, W = depth.unsqueeze(dim=2).size()
-        depth_tmp = depth.reshape(B*N, C, H, W)
-        pad = int((step - 1) // 2)
-        depth_tmp = F.pad(depth_tmp, [pad, pad, pad, pad], mode='constant', value=0)
-        patches = depth_tmp.unfold(dimension=2, size=step, step=1)
-        patches = patches.unfold(dimension=3, size=step, step=1)
-        max_depth, _ = patches.reshape(B, N, C, H, W, -1).max(dim=-1)  # [2, 6, 1, 256, 704]
-
-        step = float(step)
-        shift_list = [[step / H, 0.0 / W], [-step / H, 0.0 / W], [0.0 / H, step / W], [0.0 / H, -step / W]]
-        max_depth_tmp = max_depth.reshape(B*N, C, H, W)
-        output_list = []
-        for shift in shift_list:
-            transform_matrix =torch.tensor([[1, 0, shift[0]],[0, 1, shift[1]]]).unsqueeze(0).repeat(B*N, 1, 1).cuda()
-            grid = F.affine_grid(transform_matrix, max_depth_tmp.shape).float()
-            output = F.grid_sample(max_depth_tmp, grid, mode='nearest').reshape(B, N, C, H, W)  #平移后图像
-            output = max_depth - output
-            output_mask = ((output == max_depth) == False)
-            output = output * output_mask
-            output_list.append(output)
-        grad = torch.cat(output_list, dim=2)  # [2, 6, 4, 256, 704]
-        depth_grad = torch.abs(grad).max(dim=2)[0].unsqueeze(2)
-
-        return max_depth, depth_grad
-    
+        self.imgfeat_32x88 = imgfeat_32x88
+        if self.imgfeat_32x88:
+            self.neck_upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            self.reduce_conv_neck = nn.Conv2d(512 + kwargs['img_neck']['out_channels'] , kwargs['img_neck']['out_channels'], 1)
+            
     def extract_feat(self, points, img_inputs, img_metas, **kwargs):
         """Extract features from images and points."""
         """
@@ -132,16 +101,44 @@ class BEVDepth4D_MTL(BEVDepth4D):
                 post_trans:  (B, N_views, 3)
                 bda_rot:  (B, 3, 3)
         """
-        if self.use_FGD:
-            img_feats, depth, pred_fine_depth = self.extract_img_feat(img_inputs, img_metas, **kwargs)
-            pts_feats = None
-            return img_feats, pts_feats, depth, pred_fine_depth
+        img_feats, depth = self.extract_img_feat(img_inputs, img_metas, **kwargs)
+        pts_feats = None
+        return img_feats, pts_feats, depth
 
-        else:
-            img_feats, depth = self.extract_img_feat(img_inputs, img_metas, **kwargs)
-            pts_feats = None
-            return img_feats, pts_feats, depth
 
+    def image_encoder(self, img, stereo=False):
+        """
+        Args:
+            img: (B, N, 3, H, W)
+            stereo: bool
+        Returns:
+            x: (B, N, C, fH, fW)
+            stereo_feat: (B*N, C_stereo, fH_stereo, fW_stereo) / None
+        """
+        imgs = img
+        B, N, C, imH, imW = imgs.shape
+        imgs = imgs.view(B * N, C, imH, imW)
+        x = self.img_backbone(imgs)
+        stereo_feat = None
+        if stereo:
+            stereo_feat = x[0]
+            x = x[1:]
+        if self.with_img_neck:
+            if self.imgfeat_32x88:
+                neck_out = self.img_neck(x[1:])
+                if type(neck_out) in [list, tuple]:
+                    neck_out = neck_out[0]
+                neck_out = self.neck_upsample(neck_out)
+                x = self.reduce_conv_neck(torch.cat((x[0], neck_out), 1 ))
+            else:
+                x = self.img_neck(x)
+                if type(x) in [list, tuple]:
+                    x = x[0]
+        _, output_dim, ouput_H, output_W = x.shape
+        x = x.view(B, N, output_dim, ouput_H, output_W)
+        return x, stereo_feat
+    
+    
     def prepare_bev_feat(self, img, sensor2egos, ego2globals, intrin, post_rot, post_tran,
                          bda, mlp_input):
         """
@@ -161,11 +158,11 @@ class BEVDepth4D_MTL(BEVDepth4D):
         x, _ = self.image_encoder(img)      # x: (B, N, C, fH, fW)
         # bev_feat: (B, C * Dz(=1), Dy, Dx)
         # depth: (B * N, D, fH, fW)
-        bev_feat, depth, fine_depth = self.img_view_transformer(
+        bev_feat, depth = self.img_view_transformer(
             [x, sensor2egos, ego2globals, intrin, post_rot, post_tran, bda, mlp_input])
         if self.pre_process:
             bev_feat = self.pre_process_net(bev_feat)[0]    # (B, C, Dy, Dx)
-        return bev_feat, depth, fine_depth
+        return bev_feat, depth
 
     def forward_train(self,
                       points=None,
@@ -209,26 +206,13 @@ class BEVDepth4D_MTL(BEVDepth4D):
         # img_feats: List[(B, C, Dz, Dy, Dx)/(B, C, Dy, Dx) , ]
         # pts_feats: None
         # depth: (B*N_views, D, fH, fW)
-        if self.use_FGD:
-            img_feats, pts_feats, depth, pred_fine_depth = self.extract_feat(
-                points, img_inputs=img_inputs, img_metas=img_metas, **kwargs)
-        else:
-            img_feats, pts_feats, depth = self.extract_feat(
+        img_feats, pts_feats, depth = self.extract_feat(
                 points, img_inputs=img_inputs, img_metas=img_metas, **kwargs)
 
         gt_depth = kwargs['gt_depth']   # (B, N_views, img_H, img_W)
-    
         
         losses = dict()
         loss_depth = self.img_view_transformer.get_depth_loss(gt_depth, depth)
-        losses['loss_depth'] = loss_depth
-        if self.use_FGD:
-            FGD_loss = self.img_view_transformer.get_FGD_loss(gt_depth,pred_fine_depth)
-            losses['FGD_loss'] = FGD_loss
-        if self.use_EADF:
-            dense_depth, depth_grad = self.prepare_EADF(gt_depth)
-            EADF_loss = self.img_view_transformer.get_EADF_loss(dense_depth, depth_grad, pred_fine_depth)
-            losses['loss_EADF'] = EADF_loss
         losses.update(loss_depth)
         # losses['loss_depth'] = loss_depth
         
@@ -370,7 +354,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
         """Extract features of images."""
         bev_feat_list = []
         depth_list = []
-        fine_depth_list = []
         key_frame = True  # back propagation for key frame only
 
         for img, sensor2keyego, ego2global, intrin, post_rot, post_tran in zip(
@@ -387,17 +370,16 @@ class BEVDepth4D_MTL(BEVDepth4D):
                 if key_frame:
                     # bev_feat: (B, C, Dy, Dx)
                     # depth: (B*N_views, D, fH, fW)
-                    bev_feat, depth, fine_depth = self.prepare_bev_feat(*inputs_curr)
+                    bev_feat, depth = self.prepare_bev_feat(*inputs_curr)
                 else:
                     with torch.no_grad():
-                        bev_feat, depth, fine_depth = self.prepare_bev_feat(*inputs_curr)
+                        bev_feat, depth = self.prepare_bev_feat(*inputs_curr)
             else:
                 # https://github.com/HuangJunJie2017/BEVDet/issues/275
                 bev_feat = torch.zeros_like(bev_feat_list[0])
                 depth = None
             bev_feat_list.append(bev_feat)
             depth_list.append(depth)
-            fine_depth_list.append(fine_depth)
             key_frame = False
 
         # bev_feat_list: List[(B, C, Dy, Dx), (B, C, Dy, Dx), ...]
@@ -442,10 +424,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
             bev_feat = self.down_sample_for_3d_pooling(bev_feat)
         x = self.bev_encoder(bev_feat)
 
-        if self.use_FGD:
-            return x, depth_list[0], fine_depth_list[0]
-        else:
-            return x, depth_list[0]
+        return x, depth_list[0]
 
 
     @force_fp32()

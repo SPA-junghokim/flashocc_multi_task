@@ -32,7 +32,7 @@ grid_config = {
     'x': [-40, 40, 0.4],
     'y': [-40, 40, 0.4],
     'z': [-1, 5.4, 0.4],
-    'depth': [1.0, 45.0, 1],
+    'depth': [1.0, 45.0, 0.5],
 }
 
 voxel_size = [0.1, 0.1, 0.2]
@@ -41,9 +41,6 @@ numC_Trans = 64
 numC_Trans_pool = 64
 multi_adj_frame_id_cfg = (1, 1, 1)
 
-use_EADF=True
-use_FGD=True
-
 if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
 else:
@@ -51,8 +48,6 @@ else:
 
 model = dict(
     type='BEVDepth4D_MTL',
-    use_EADF=use_EADF,
-    use_FGD=use_FGD,
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
     img_backbone=dict(
@@ -67,10 +62,11 @@ model = dict(
         style='pytorch',
         pretrained='torchvision://resnet50',
     ),
+    imgfeat_32x88 = True,
     img_neck=dict(
         type='CustomFPN',
-        in_channels=[512, 1024, 2048],
-        out_channels=128,
+        in_channels=[1024, 2048],
+        out_channels=256,
         num_outs=1,
         start_level=0,
         out_ids=[0]),
@@ -78,15 +74,12 @@ model = dict(
         type='LSSViewTransformerBEVDepth',
         grid_config=grid_config,
         input_size=data_config['input_size'],
-        in_channels=128,
+        in_channels=256,
         out_channels=numC_Trans_pool,
         sid=False,
         collapse_z=True,
         downsample=8,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
-        use_EADF=use_EADF,
-        use_FGD=use_FGD,
-        ealss_loc='before_depthnet'
         ),
     down_sample_for_3d_pooling=[numC_Trans_pool*16, numC_Trans],
     img_bev_encoder_backbone=dict(
