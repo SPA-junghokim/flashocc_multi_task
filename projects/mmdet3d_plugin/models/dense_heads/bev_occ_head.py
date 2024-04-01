@@ -38,6 +38,7 @@ class BEVOCCHead3D(BaseModule):
                  use_mask=True,
                  num_classes=18,
                  use_predicter=True,
+                 class_balance=False,
                  class_wise=False,
                  loss_occ=None,
                  sololoss=True,
@@ -76,19 +77,25 @@ class BEVOCCHead3D(BaseModule):
 
         self.num_classes = num_classes
         self.use_mask = use_mask
-        self.loss_occ = build_loss(loss_occ)
-        self.class_wise = class_wise
+        self.class_balance = class_balance
         self.sololoss = sololoss
         
-        if self.sololoss:
+        if self.class_balance:
+            class_weights = torch.from_numpy(1 / np.log(nusc_class_frequencies[:num_classes] + 0.001))
+            self.weight = class_weights
+            loss_occ['class_weight'] = class_weights        # ce loss
+        else:
             self.weight = torch.Tensor(weight)
+            
+        self.loss_occ = build_loss(loss_occ)
+
+        if self.sololoss:
             self.cross_entropy_loss = torch.nn.CrossEntropyLoss(weight=self.weight, ignore_index=255, reduction="mean")
             self.lovasz_softmax_loss = lovasz_softmax
             self.loss_weight=loss_weight
         else:
             self.loss_occ = build_loss(loss_occ)
         
-
     def forward(self, img_feats):
         """
         Args:
@@ -178,6 +185,7 @@ class BEVOCCHead2D(BaseModule):
                  num_classes=18,
                  use_predicter=True,
                  class_wise=False,
+                 class_balance=False,
                  loss_occ=None,
                  sololoss=False,
                  weight=[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0],
@@ -209,10 +217,20 @@ class BEVOCCHead2D(BaseModule):
 
         self.use_mask = use_mask
         self.num_classes = num_classes
+        self.class_balance = class_balance
         
         self.channel_down_for_3d = channel_down_for_3d
         if self.channel_down_for_3d:
             self.channel_down_for_3d = nn.Linear(channel_down_for_3d, self.in_dim)
+            
+        
+        if self.class_balance:
+            class_weights = torch.from_numpy(1 / np.log(nusc_class_frequencies[:num_classes] + 0.001))
+            self.weight = class_weights
+            loss_occ['class_weight'] = class_weights        # ce loss
+        else:
+            self.weight = torch.Tensor(weight)
+            
         self.sololoss = sololoss
         if self.sololoss:
             self.weight = torch.Tensor(weight)
@@ -222,15 +240,10 @@ class BEVOCCHead2D(BaseModule):
         else:
             self.loss_occ = build_loss(loss_occ)
         
+        
         self.z_embeding = z_embeding
         if self.z_embeding:
             self.z_embeding = nn.Embedding(self.Dz, self.out_dim)
-            # self.predicter = nn.Sequential(
-            #     nn.Conv3d(self.out_dim, self.out_dim//2, kernel_size=1,),
-            #     # nn.BatchNorm3d(self.out_dim//4),
-            #     nn.Softplus(),
-            #     nn.Conv3d(self.out_dim//2, num_classes, kernel_size=1, ),
-            # )
             self.predicter = nn.Sequential(
                 nn.Conv3d(self.out_dim, self.out_dim//2, kernel_size=3, dilation=2, padding=2),
                 nn.BatchNorm3d(self.out_dim//2),
@@ -266,7 +279,7 @@ class BEVOCCHead2D(BaseModule):
 
         return occ_pred
 
-    def loss(self, occ_pred, voxel_semantics, mask_camera):
+    def loss(self, occ_pred, voxel_semantics, mask_camera, **kwargs):
         """
         Args:
             occ_pred: (B, Dx, Dy, Dz, n_cls)

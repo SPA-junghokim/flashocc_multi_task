@@ -229,6 +229,9 @@ class BEVDepth4D_MTL(BEVDepth4D):
             dense_depth, depth_grad = self.prepare_EADF(gt_depth)
             EADF_loss = self.img_view_transformer.get_EADF_loss(dense_depth, depth_grad, pred_fine_depth)
             losses['loss_EADF'] = EADF_loss
+        losses.update(loss_depth)
+        # losses['loss_depth'] = loss_depth
+        
         # Get box losses
         det_feats, occ_feats, seg_feats =  img_feats
 
@@ -241,7 +244,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
             losses.update(loss_weight)
             
         if self.occ_head is not None:
-            loss_occ = self.forward_occ_train(occ_feats, voxel_semantics, mask_camera)
+            loss_occ = self.forward_occ_train(occ_feats, voxel_semantics, mask_camera, img_inputs, **kwargs)
             loss_weight = {}
             for k, v in loss_occ.items():
                 loss_weight[k] = v * self.occ_loss_weight
@@ -258,7 +261,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         
         return losses
 
-    def forward_occ_train(self, img_feats, voxel_semantics, mask_camera):
+    def forward_occ_train(self, img_feats, voxel_semantics, mask_camera, img_inputs, **kwargs):
         """
         Args:
             img_feats: (B, C, Dz, Dy, Dx) / (B, C, Dy, Dx)
@@ -268,10 +271,12 @@ class BEVDepth4D_MTL(BEVDepth4D):
         """
         outs = self.occ_head(img_feats)
         # assert voxel_semantics.min() >= 0 and voxel_semantics.max() <= 17
+        kwargs['bda'] = img_inputs[-1]
         loss_occ = self.occ_head.loss(
             outs,  # (B, Dx, Dy, Dz, n_cls)
             voxel_semantics,  # (B, Dx, Dy, Dz)
             mask_camera,  # (B, Dx, Dy, Dz)
+            **kwargs,
         )
         return loss_occ
 
