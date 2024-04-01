@@ -81,7 +81,7 @@ model = dict(
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
         dpeht_render_loss=True,
         variance_focus=0.65,
-        render_loss_depth_weight=3,
+        render_loss_depth_weight=1,
         depth_loss_ce=False,  
         ),
     down_sample_for_3d_pooling=[numC_Trans_pool*16, numC_Trans],
