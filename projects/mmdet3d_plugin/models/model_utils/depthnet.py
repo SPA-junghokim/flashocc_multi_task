@@ -364,7 +364,7 @@ class DepthNet(nn.Module):
         return cost_volumn
     # ----------------------------------------- 用于建立cost volume --------------------------------------
 
-    def forward(self, x, mlp_input, stereo_metas=None):
+    def forward(self, x, mlp_input, stereo_metas=None, ea_lss=False):
         """
         Args:
             x: (B*N_views, C, fH, fW)
@@ -402,8 +402,7 @@ class DepthNet(nn.Module):
                 BN, _, H, W = x.shape
                 scale_factor = float(stereo_metas['downsample'])/\
                                stereo_metas['cv_downsample']
-                cost_volumn = \
-                    torch.zeros((BN, self.depth_channels,
+                cost_volumn = torch.zeros((BN, self.depth_channels,
                                  int(H*scale_factor),
                                  int(W*scale_factor))).to(x)
             else:

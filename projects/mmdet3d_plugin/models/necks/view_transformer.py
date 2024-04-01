@@ -7,7 +7,7 @@ from ...ops import bev_pool_v2
 from ..model_utils import DepthNet
 from torch.cuda.amp.autocast_mode import autocast
 import torch.nn.functional as F
-
+from mmdet3d.models.builder import build_loss
 
 @NECKS.register_module(force=True)
 class LSSViewTransformer(BaseModule):
@@ -360,7 +360,6 @@ class LSSViewTransformer(BaseModule):
             depth: (B*N, D, fH, fW)
         """
         B, N, C, H, W = input[0].shape
-
         # Lift-Splat
         if self.accelerate:
             feat = tran_feat.view(B, N, self.out_channels, H, W)      # (B, N, C, fH, fW)
@@ -438,7 +437,8 @@ class LSSViewTransformer(BaseModule):
 @NECKS.register_module()
 class LSSViewTransformerBEVDepth(LSSViewTransformer):
     def __init__(self, loss_depth_weight=3.0, depthnet_cfg=dict(), virtual_depth=False, 
-                 min_focal_length=800, virtual_depth_bin=180, min_ida_scale=0, **kwargs):
+                 min_focal_length=800, virtual_depth_bin=180, min_ida_scale=0,use_FGD=False, use_EADF=False,
+                 loss_EADF_depth_weight=10.0, loss_FGD_depth_weight=10.0, **kwargs):
         super(LSSViewTransformerBEVDepth, self).__init__(**kwargs)
         self.loss_depth_weight = loss_depth_weight
         self.depth_channels = self.D
@@ -457,7 +457,34 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             depth_channels=self.depth_channels,
             virtual_depth=self.virtual_depth,
             **depthnet_cfg)
-            
+        
+        self.use_FGD = use_FGD
+        self.use_EADF = use_EADF
+        self.loss_predict_depth_grad = build_loss(dict(type="FocalLoss"))
+        self.loss_predict_upsampledepth = build_loss(dict(type="FocalLoss"))
+        self.loss_FGD_depth_weight = loss_FGD_depth_weight
+        self.loss_EADF_depth_weight = loss_EADF_depth_weight
+
+        if self.use_FGD:
+            self.upsample_channel = 128
+            self.upsample_depth = nn.Sequential(
+                nn.ConvTranspose2d(self.depth_channels, self.upsample_channel, kernel_size=5, padding=2, stride=2, output_padding=1, bias=False),
+                nn.BatchNorm2d(self.upsample_channel),
+                nn.ReLU(),
+                nn.ConvTranspose2d(self.upsample_channel, self.upsample_channel, kernel_size=5, padding=2, stride=2, output_padding=1, bias=False),
+                nn.BatchNorm2d(self.upsample_channel),
+                nn.ReLU(),
+                nn.ConvTranspose2d(self.upsample_channel, self.upsample_channel, kernel_size=5, padding=2, stride=2, output_padding=1, bias=False),
+                nn.BatchNorm2d(self.upsample_channel),
+                nn.ReLU(),
+                nn.ConvTranspose2d(self.upsample_channel, self.upsample_channel, kernel_size=5, padding=2, stride=2, output_padding=1, bias=False),
+                nn.BatchNorm2d(self.upsample_channel),
+                nn.ReLU(),
+                nn.ConvTranspose2d(self.upsample_channel, self.upsample_channel, kernel_size=5, padding=2, bias=False),
+                nn.BatchNorm2d(self.upsample_channel),
+                nn.ReLU(),
+                nn.Conv2d(self.upsample_channel, self.D, kernel_size=1),
+            )
         
     def create_frustum_virtual(self, depth_cfg, input_size, downsample):
         """Generate frustum"""
@@ -560,8 +587,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             bev_feat: (B, C, Dy, Dx)
             depth: (B*N, D, fH, fW)
         """
-        (x, rots, trans, intrins, post_rots, post_trans, bda,
-         mlp_input) = input[:8]
+        (x, rots, trans, intrins, post_rots, post_trans, bda, mlp_input) = input[:8]
         B, N, C, H, W = x.shape
         x = x.view(B * N, C, H, W)      # (B*N_views, C, fH, fW)
         x = self.depth_net(x, mlp_input, stereo_metas)      # (B*N_views, D+C_context, fH, fW)
@@ -569,6 +595,11 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         tran_feat = x[:, self.depth_channels:self.depth_channels + self.out_channels, ...]    # (B*N_views, C_context, fH, fW)
         depth = depth_digit.softmax(dim=1)  # (B*N_views, D, fH, fW)
         
+        if self.use_FGD:
+            fine_depth = self.upsample_depth(depth_digit)
+        else:
+            fine_depth = None
+
         if self.virtual_depth:
             ida = torch.repeat_interleave(torch.eye(3).unsqueeze(0), B * N, dim=0).view(B, N, 3, 3).to(rots.device)
             ida[:,:,:3,:3] = post_rots
@@ -585,7 +616,8 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             depth = real_depth_feature.softmax(1)
             
         bev_feat, depth = self.view_transform(input, depth, tran_feat)
-        return bev_feat, depth
+        
+        return bev_feat, depth, fine_depth
 
     def get_downsampled_gt_depth(self, gt_depths):
         """
@@ -641,11 +673,11 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         """
         depth_labels = self.get_downsampled_gt_depth(depth_labels)      # (B*N_views*fH*fW, D)
         # (B*N_views, D, fH, fW) --> (B*N_views, fH, fW, D) --> (B*N_views*fH*fW, D)
-        depth_preds = depth_preds.permute(0, 2, 3,
-                                          1).contiguous().view(-1, self.D)
-        fg_mask = torch.max(depth_labels, dim=1).values > 0.0
+        depth_preds = depth_preds.permute(0, 2, 3, 1).contiguous().view(-1, self.D) # [4224, 88]
+        fg_mask = torch.max(depth_labels, dim=1).values > 0.0 #[4224]
         depth_labels = depth_labels[fg_mask]
         depth_preds = depth_preds[fg_mask]
+        
         with autocast(enabled=False):
             depth_loss = F.binary_cross_entropy(
                 depth_preds,
@@ -653,6 +685,43 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                 reduction='none',
             ).sum() / max(1.0, fg_mask.sum())
         return self.loss_depth_weight * depth_loss
+
+    @force_fp32()
+    def get_FGD_loss(self, depth_labels, pre_depth):
+        """
+            Args:
+                depth_labels: (B, N_views, img_h, img_w)
+                depth_preds: (B*N_views, D, fH, fW)
+            Returns:
+        """
+        depth_label = depth_labels.reshape(-1)
+        mask = torch.nonzero((depth_label >= 1.0) * (depth_label < 45.0)).squeeze(1)
+        depth_label = depth_label[mask]
+        pre_depth = pre_depth.permute(0, 2, 3, 1).reshape(-1, self.D)[mask, :]
+        depth_label = (depth_label - 1.0) // 0.5
+        loss_predict_upsampledepth = self.loss_predict_upsampledepth(
+            pre_depth, depth_label.long(),
+        )
+        return self.loss_FGD_depth_weight * loss_predict_upsampledepth
+
+
+    @force_fp32()
+    def get_EADF_loss(self, max_depth, max_grad, pre_depth):
+        """
+            Args:
+                depth_labels: (B, N_views, img_h, img_w)
+                depth_preds: (B*N_views, D, fH, fW)
+            Returns:
+        """
+        B, N, C, H, W = max_depth.size()
+        max_depth = torch.clamp(max_depth, min=1.0, max=45.0)
+        max_depth = (max_depth - 1.0) // 0.5
+        pre_depth = pre_depth.permute(0, 2, 3, 1).reshape(B*N, H, W, self.D).reshape(-1, self.D)
+        max_depth = max_depth.permute(0, 1, 3, 4, 2).reshape(B*N, H, W, 1).reshape(-1)
+        weight = (torch.abs(max_grad) / torch.abs(max_grad).reshape(-1).max(dim=0)[0]).reshape(-1)
+        loss_predict_depth_grad = self.loss_predict_depth_grad(pre_depth, max_depth.long(), weight)
+        return self.loss_EADF_depth_weight * loss_predict_depth_grad
+
 
 
 @NECKS.register_module()
