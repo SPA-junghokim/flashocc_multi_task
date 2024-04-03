@@ -31,6 +31,9 @@ class BEVDet(CenterPoint):
         B, N, C, imH, imW = imgs.shape
         imgs = imgs.view(B * N, C, imH, imW)
         x = self.img_backbone(imgs)
+        
+        
+        
         stereo_feat = None
         if stereo:
             stereo_feat = x[0]

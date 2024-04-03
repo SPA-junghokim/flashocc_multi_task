@@ -173,6 +173,7 @@ class CustomFPN(BaseModule):
                 prev_shape = laterals[i - 1].shape[2:]
                 laterals[i - 1] += F.interpolate(
                     laterals[i], size=prev_shape, **self.upsample_cfg)
+                
         # build outputs
         # part 1: from original levels
         outs = [self.fpn_convs[i](laterals[i]) for i in self.out_ids]

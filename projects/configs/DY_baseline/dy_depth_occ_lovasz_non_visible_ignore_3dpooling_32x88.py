@@ -64,7 +64,7 @@ model = dict(
     ),
     img_neck=dict(
         type='CustomFPN',
-        in_channels=[512, 1024, 2048],
+        in_channels=[1024, 2048],
         out_channels=256,
         num_outs=1,
         start_level=0,

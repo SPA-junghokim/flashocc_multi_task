@@ -710,9 +710,16 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             Returns:
         """
         depth_loss_dict = dict()
-        breakpoint()
         depth_labels_value, depth_labels = self.get_downsampled_gt_depth(depth_labels)      # (B*N_views*fH*fW, D)
         if self.dpeht_render_loss:
+            """
+            if self.depth_render_sigmoid:
+                transmittance = (self.grid_config['depth'][2] * self.depth_feat.sigmoid()).cumsum(1)
+                depth_pred_rendered = (transmittance*(1-torch.exp(-self.grid_config['depth'][2] * self.depth_feat.sigmoid()))).sum(1)
+            else:
+                transmittance = (self.grid_config['depth'][2] * depth_preds).cumsum(1)
+                depth_pred_rendered = (transmittance*(1-torch.exp(-self.grid_config['depth'][2] * depth_preds))).sum(1)
+            """
             transmittance = (self.grid_config['depth'][2] * depth_preds).cumsum(1)
             depth_pred_rendered = (transmittance*(1-torch.exp(-self.grid_config['depth'][2] * depth_preds))).sum(1)
             
