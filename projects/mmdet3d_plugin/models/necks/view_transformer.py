@@ -609,29 +609,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         """
         (x, rots, trans, intrins, post_rots, post_trans, bda, mlp_input) = input[:8]
         B, N, C, H, W = x.shape
-        # x = x.view(B * N, C, H, W)      # (B*N_views, C, fH, fW)
-        # if self.context_residual:
-        #     x_for_residual = self.prepare_residual(x)
-            
-        # if self.ealss_loc == 'before_depthnet':
-        #     fine_depth = self.upsample_depth(x)
-            
-        # if self.ealss_loc == 'in_depthnet':
-        #     x, middle_feat = self.depth_net(x, mlp_input, stereo_metas, ea_lss=True)      # (B*N_views, D+C_context, fH, fW)
-        #     fine_depth = self.upsample_depth(middle_feat)
-        # else:
-        #     x = self.depth_net(x, mlp_input, stereo_metas)      # (B*N_views, D+C_context, fH, fW)
-        
-        
-        # depth_digit = x[:, :self.depth_channels, ...]    # (B*N_views, D, fH, fW)
-        # if self.depth_loss_focal:
-        #     self.depth_feat = depth_digit
-        # tran_feat = x[:, self.depth_channels:self.depth_channels + self.out_channels, ...]    # (B*N_views, C_context, fH, fW)
-        # if self.context_residual:
-        #     tran_feat = tran_feat + x_for_residual
-        
-        # depth = depth_digit.softmax(dim=1)  # (B*N_views, D, fH, fW)
-        
+
         x_input = x.view(B * N, C, H, W)      # (B*N_views, C, fH, fW)
         x_depth, middle_feat = self.depth_net(x_input, mlp_input, stereo_metas, ea_lss=True)      # (B*N_views, D+C_context, fH, fW)
         
