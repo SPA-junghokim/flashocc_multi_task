@@ -41,7 +41,7 @@ class FrustumToVoxel(nn.Module):
                                                    )
         self.sampler = Sampler(mode, padding_mode)
 
-    def forward(self, trans_lidar_to_cam, trans_cam_to_img, image_shape, bda_4x4, frustum_features):
+    def forward(self, trans_lidar_to_cam, trans_cam_to_img, image_shape, bda_4x4, frustum_features, depth_attn_cumsum):
         """
         Generates voxel features via 3D transformation and sampling
         Args:
@@ -60,61 +60,17 @@ class FrustumToVoxel(nn.Module):
                                    )  # (B, X, Y, Z, 3)
 
         # Sample frustum volume to generate voxel volume
-        breakpoint()
         
-        voxel_features = self.sampler(input_features=frustum_features.reshape(B*N, *frustum_features.shape[2:])[:,None], grid=grid)  # (B, C, X, Y, Z)
-        voxel_features = self.sampler(input_features=frustum_features.reshape(B*N, *frustum_features.shape[2:])[:,None].permute(0,1,4,3,2), grid=grid)  # (B, C, X, Y, Z)
-        # voxel_features = self.sampler(input_features=frustum_features.reshape(B*N, *frustum_features.shape[2:])[:,None].permute(0,1,3,4,2), grid=grid)  # (B, C, X, Y, Z)
-        # voxel_features = self.sampler(input_features=frustum_features.reshape(B*N, *frustum_features.shape[2:])[:,None].permute(0,1,3,4,2), grid=grid/self.downsample)  # (B, C, X, Y, Z)
+        voxel_features = self.sampler(input_features=frustum_features.reshape(B*N, *frustum_features.shape[2:])[:,None], grid=grid)  # (B, C, X, Y, Z) # v2
+        # voxel_features = self.sampler(input_features=frustum_features.reshape(B*N, *frustum_features.shape[2:])[:,None].permute(0,1,4,3,2), grid=grid)  # (B, C, X, Y, Z) #v1
         voxel_features = voxel_features.squeeze(1).reshape(B,N,*voxel_features.shape[-3:])
-        # voxel_features = voxel_features.permute(0, 1, 4, 3, 2)
-        # (B, C, X, Y, Z) -> (B, C, Z, Y, X)
-        import matplotlib.pyplot as plt
-        cam_id = 0
-        tensor = (voxel_features[0][cam_id].sum(0).bool()).float().cpu()
-        tensor = tensor/tensor.max()*255
-        plt.imshow(tensor, cmap='gray')
-        plt.axis('off')  # 축 제거
-        plt.savefig(f'tensor_image{cam_id}.png', bbox_inches='tight', pad_inches=0)  # 이미지 저장
-        
-        cam_id = 1
-        tensor = (voxel_features[0][cam_id].sum(0).bool()).float().cpu()
-        tensor = tensor/tensor.max()*255
-        plt.imshow(tensor, cmap='gray')
-        plt.axis('off')  # 축 제거
-        plt.savefig(f'tensor_image{cam_id}.png', bbox_inches='tight', pad_inches=0)  # 이미지 저장
 
-        cam_id = 2
-        tensor = (voxel_features[0][cam_id].sum(0).bool()).float().cpu()
-        tensor = tensor/tensor.max()*255
-        plt.imshow(tensor, cmap='gray')
-        plt.axis('off')  # 축 제거
-        plt.savefig(f'tensor_image{cam_id}.png', bbox_inches='tight', pad_inches=0)  # 이미지 저장
-
-        cam_id = 3
-        tensor = (voxel_features[0][cam_id].sum(0).bool()).float().cpu()
-        tensor = tensor/tensor.max()*255
-        plt.imshow(tensor, cmap='gray')
-        plt.axis('off')  # 축 제거
-        plt.savefig(f'tensor_image{cam_id}.png', bbox_inches='tight', pad_inches=0)  # 이미지 저장
-
-        cam_id = 4
-        tensor = (voxel_features[0][cam_id].sum(0).bool()).float().cpu()
-        tensor = tensor/tensor.max()*255
-        plt.imshow(tensor, cmap='gray')
-        plt.axis('off')  # 축 제거
-        plt.savefig(f'tensor_image{cam_id}.png', bbox_inches='tight', pad_inches=0)  # 이미지 저장
-
-        cam_id = 5
-        tensor = (voxel_features[0][cam_id].sum(0).bool()).float().cpu()
-        tensor = tensor/tensor.max()*255
-        plt.imshow(tensor, cmap='gray')
-        plt.axis('off')  # 축 제거
-        plt.savefig(f'tensor_image{cam_id}.png', bbox_inches='tight', pad_inches=0)  # 이미지 저장
-
-        tensor0 = (voxel_features[0][0])
-        tensor1 = (voxel_features[0][1])
-        (tensor0!=tensor1).sum()
-        # voxel_features = voxel_features.permute(0, 1, 4, 3, 2)
-
-        return voxel_features
+        voxel_non_zero = (voxel_features!=0).sum(1)
+        if depth_attn_cumsum:
+            voxel_score = torch.ones_like(voxel_non_zero).to(voxel_features)
+        else:
+            voxel_score = torch.zeros_like(voxel_non_zero).to(voxel_features)
+        voxel_non_bool = voxel_non_zero.bool()
+        voxel_score[voxel_non_bool] = voxel_features.sum(1)[voxel_non_bool]/voxel_non_zero[voxel_non_bool]
+        voxel_score = torch.nan_to_num(voxel_score)
+        return voxel_score

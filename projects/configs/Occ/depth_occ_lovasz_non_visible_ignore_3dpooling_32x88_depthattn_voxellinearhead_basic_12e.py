@@ -1,6 +1,8 @@
 _base_ = ['../../../mmdetection3d/configs/_base_/datasets/nus-3d.py',
           '../../../mmdetection3d/configs/_base_/default_runtime.py']
 
+load_from='/mnt/sdb/jhkim11/flashocc_multi_task/work_dirs/Occ/depth_occ_lovasz_non_visible_ignore_3dpooling/epoch_24.pth'
+
 plugin = True
 plugin_dir = 'projects/mmdet3d_plugin/'
 point_cloud_range = [-40.0, -40.0, -1.0, 40.0, 40.0, 5.4]
@@ -95,7 +97,7 @@ model = dict(
         out_channels=256),
     
     depth_attn=[256, numC_Trans_voxelhead],
-    depth_attn_cumsum=True,
+    depth_attn_cumsum='basic',
     frustum_to_voxel=dict(
         type='FrustumToVoxel',
         grid_config=grid_config, 

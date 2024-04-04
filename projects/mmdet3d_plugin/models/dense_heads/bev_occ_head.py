@@ -117,7 +117,7 @@ class BEVOCCHead3D(BaseModule):
             
         return occ_pred
 
-    def loss(self, occ_pred, voxel_semantics, mask_camera):
+    def loss(self, occ_pred, voxel_semantics, mask_camera, **kwargs):
         """
         Args:
             occ_pred: (B, Dx, Dy, Dz, n_cls)

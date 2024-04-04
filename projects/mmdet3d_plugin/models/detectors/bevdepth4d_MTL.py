@@ -285,14 +285,19 @@ class BEVDepth4D_MTL(BEVDepth4D):
             trans_cam_to_img[:,:,:3,:3] = ida_mat.matmul(intrins)
             trans_lidar_to_cam = torch.inverse(sensor2egos)
             image_shape = torch.tensor([H_,W_]).to(imgs.device).float()
-            if self.depth_attn_cumsum:
+            if self.depth_attn_cumsum == 'basic':
                 frustum_features = depth.cumsum(1).reshape(B,N,-1,H,W)
+                canvas_ones = True
+            elif self.depth_attn_cumsum == 'minus':
+                frustum_features = depth.cumsum(1).reshape(B,N,-1,H,W)
+                frustum_features = 1 - frustum_features
+                canvas_ones = False
             else:
                 frustum_features = depth.reshape(B,N,-1,H,W)
-                
-            voxel_score = self.frustum_to_voxel(trans_lidar_to_cam, trans_cam_to_img, image_shape, bda_4x4, frustum_features)
-            breakpoint()
-            img_feats = img_feats * voxel_score
+                canvas_ones = False
+            voxel_score = self.frustum_to_voxel(trans_lidar_to_cam, trans_cam_to_img, image_shape, bda_4x4, frustum_features, canvas_ones)
+            
+            img_feats = img_feats[:,:,None] * voxel_score[:,None]
             img_feats = self.depth_attn_downsample_conv(img_feats)
         outs = self.occ_head(img_feats)
         # assert voxel_semantics.min() >= 0 and voxel_semantics.max() <= 17
@@ -344,6 +349,29 @@ class BEVDepth4D_MTL(BEVDepth4D):
         Returns:
             occ_preds: List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
         """
+        if self.depth_attn:
+            imgs, sensor2egos, ego2globals, intrins, post_rots, post_trans, bda = img_inputs
+            B,N,C,H_,W_ = imgs.shape
+            _,_,H,W = depth.shape
+            bda_4x4 = torch.repeat_interleave(torch.eye(4)[None], 4, 0).to(imgs.device)
+            bda_4x4[:,:2,:2] = bda[:,:2,:2]
+            bda_4x4 = bda_4x4[:,None].repeat(1,N,1,1).reshape(B*N,4,4)
+            ida_mat = torch.repeat_interleave(torch.eye(3)[None], B * N, dim=0).view(B, N, 3, 3).to(imgs[0].device)
+            ida_mat[:,:,:3,:3] = post_rots
+            ida_mat[:,:,:2,2] = post_trans[:,:,:2]
+            trans_cam_to_img = torch.zeros(B, N, 3, 4).to(imgs.device)
+            trans_cam_to_img[:,:,:3,:3] = ida_mat.matmul(intrins)
+            trans_lidar_to_cam = torch.inverse(sensor2egos)
+            image_shape = torch.tensor([H_,W_]).to(imgs.device).float()
+            if self.depth_attn_cumsum:
+                frustum_features = depth.cumsum(1).reshape(B,N,-1,H,W)
+            else:
+                frustum_features = depth.reshape(B,N,-1,H,W)
+                
+            voxel_score = self.frustum_to_voxel(trans_lidar_to_cam, trans_cam_to_img, image_shape, bda_4x4, frustum_features)
+            breakpoint()
+            img_feats = img_feats[:,:,None] * voxel_score[:,None]
+            img_feats = self.depth_attn_downsample_conv(img_feats)
         outs = self.occ_head(img_feats)
         occ_preds = self.occ_head.get_occ(outs, img_metas)      # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
         return occ_preds
