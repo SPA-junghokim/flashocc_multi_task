@@ -33,8 +33,9 @@ class BEVDepth4D_MTL(BEVDepth4D):
                  detection_neck=False,
                  imgfeat_32x88=False,
                  depth_attn=None,
-                 depth_attn_cumsum=False,
+                 frustum_depth_attr=False,
                  frustum_to_voxel=None,
+                 frustum_depth_detach=False,
                  **kwargs):
         super(BEVDepth4D_MTL, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
                                              img_bev_encoder_neck=img_bev_encoder_neck,**kwargs)
@@ -69,7 +70,8 @@ class BEVDepth4D_MTL(BEVDepth4D):
         self.detection_neck = detection_neck
         
         self.depth_attn = depth_attn
-        self.depth_attn_cumsum = depth_attn_cumsum
+        self.frustum_depth_attr = frustum_depth_attr
+        self.frustum_depth_detach = frustum_depth_detach
         if self.depth_attn is not None:
             self.frustum_to_voxel = builder.build_neck(frustum_to_voxel)
             self.depth_attn_downsample_conv = ConvModule( # 1x1 conv3d 가 빠른지 linear 가 빠른지 비교
@@ -273,6 +275,8 @@ class BEVDepth4D_MTL(BEVDepth4D):
         """
         if self.depth_attn:
             imgs, sensor2egos, ego2globals, intrins, post_rots, post_trans, bda = img_inputs
+            if self.frustum_depth_detach:
+                depth_for_voxel = depth.detach()
             B,N,C,H_,W_ = imgs.shape
             _,_,H,W = depth.shape
             bda_4x4 = torch.repeat_interleave(torch.eye(4)[None], 4, 0).to(imgs.device)
@@ -285,15 +289,15 @@ class BEVDepth4D_MTL(BEVDepth4D):
             trans_cam_to_img[:,:,:3,:3] = ida_mat.matmul(intrins)
             trans_lidar_to_cam = torch.inverse(sensor2egos)
             image_shape = torch.tensor([H_,W_]).to(imgs.device).float()
-            if self.depth_attn_cumsum == 'basic':
-                frustum_features = depth.cumsum(1).reshape(B,N,-1,H,W)
+            if self.frustum_depth_attr == 'trasnmittance':
+                frustum_features = depth_for_voxel.cumsum(1).reshape(B,N,-1,H,W)
                 canvas_ones = True
-            elif self.depth_attn_cumsum == 'minus':
-                frustum_features = depth.cumsum(1).reshape(B,N,-1,H,W)
+            elif self.frustum_depth_attr == 'reverse_transmittance':
+                frustum_features = depth_for_voxel.cumsum(1).reshape(B,N,-1,H,W)
                 frustum_features = 1 - frustum_features
                 canvas_ones = False
             else:
-                frustum_features = depth.reshape(B,N,-1,H,W)
+                frustum_features = depth_for_voxel.reshape(B,N,-1,H,W)
                 canvas_ones = False
             voxel_score = self.frustum_to_voxel(trans_lidar_to_cam, trans_cam_to_img, image_shape, bda_4x4, frustum_features, canvas_ones)
             
@@ -363,7 +367,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
             trans_cam_to_img[:,:,:3,:3] = ida_mat.matmul(intrins)
             trans_lidar_to_cam = torch.inverse(sensor2egos)
             image_shape = torch.tensor([H_,W_]).to(imgs.device).float()
-            if self.depth_attn_cumsum:
+            if self.frustum_depth_attr:
                 frustum_features = depth.cumsum(1).reshape(B,N,-1,H,W)
             else:
                 frustum_features = depth.reshape(B,N,-1,H,W)

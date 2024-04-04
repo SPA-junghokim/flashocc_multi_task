@@ -41,7 +41,7 @@ class FrustumToVoxel(nn.Module):
                                                    )
         self.sampler = Sampler(mode, padding_mode)
 
-    def forward(self, trans_lidar_to_cam, trans_cam_to_img, image_shape, bda_4x4, frustum_features, depth_attn_cumsum):
+    def forward(self, trans_lidar_to_cam, trans_cam_to_img, image_shape, bda_4x4, frustum_features, frustum_depth_attr):
         """
         Generates voxel features via 3D transformation and sampling
         Args:
@@ -66,7 +66,7 @@ class FrustumToVoxel(nn.Module):
         voxel_features = voxel_features.squeeze(1).reshape(B,N,*voxel_features.shape[-3:])
 
         voxel_non_zero = (voxel_features!=0).sum(1)
-        if depth_attn_cumsum:
+        if frustum_depth_attr:
             voxel_score = torch.ones_like(voxel_non_zero).to(voxel_features)
         else:
             voxel_score = torch.zeros_like(voxel_non_zero).to(voxel_features)
