@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch
 from mmcv.runner import force_fp32
 from mmdet3d.models import builder
+from mmcv.cnn import ConvModule
 
 @DETECTORS.register_module()
 class BEVDepth4D_MTL(BEVDepth4D):
@@ -31,6 +32,9 @@ class BEVDepth4D_MTL(BEVDepth4D):
                  detection_backbone=False,
                  detection_neck=False,
                  imgfeat_32x88=False,
+                 depth_attn=None,
+                 depth_attn_cumsum=False,
+                 frustum_to_voxel=None,
                  **kwargs):
         super(BEVDepth4D_MTL, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
                                              img_bev_encoder_neck=img_bev_encoder_neck,**kwargs)
@@ -64,6 +68,20 @@ class BEVDepth4D_MTL(BEVDepth4D):
         self.detection_backbone = detection_backbone
         self.detection_neck = detection_neck
         
+        self.depth_attn = depth_attn
+        self.depth_attn_cumsum = depth_attn_cumsum
+        if self.depth_attn is not None:
+            self.frustum_to_voxel = builder.build_neck(frustum_to_voxel)
+            self.depth_attn_downsample_conv = ConvModule( # 1x1 conv3d 가 빠른지 linear 가 빠른지 비교
+                self.depth_attn[0],
+                self.depth_attn[1],
+                kernel_size=1,
+                stride=1,
+                padding=0,
+                bias=True,
+                conv_cfg=dict(type='Conv3d')
+            )
+            
         if occ_bev_encoder_backbone is not None:
             self.occ_bev_encoder_backbone = builder.build_backbone(occ_bev_encoder_backbone)
         else:
@@ -228,7 +246,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
             losses.update(loss_weight)
             
         if self.occ_head is not None:
-            loss_occ = self.forward_occ_train(occ_feats, voxel_semantics, mask_camera, img_inputs, **kwargs)
+            loss_occ = self.forward_occ_train(occ_feats, voxel_semantics, mask_camera, img_inputs, depth, **kwargs)
             loss_weight = {}
             for k, v in loss_occ.items():
                 loss_weight[k] = v * self.occ_loss_weight
@@ -245,7 +263,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         
         return losses
 
-    def forward_occ_train(self, img_feats, voxel_semantics, mask_camera, img_inputs, **kwargs):
+    def forward_occ_train(self, img_feats, voxel_semantics, mask_camera, img_inputs, depth, **kwargs):
         """
         Args:
             img_feats: (B, C, Dz, Dy, Dx) / (B, C, Dy, Dx)
@@ -253,6 +271,29 @@ class BEVDepth4D_MTL(BEVDepth4D):
             mask_camera: (B, Dx, Dy, Dz)
         Returns:
         """
+        if self.depth_attn:
+            imgs, sensor2egos, ego2globals, intrins, post_rots, post_trans, bda = img_inputs
+            B,N,C,H_,W_ = imgs.shape
+            _,_,H,W = depth.shape
+            bda_4x4 = torch.repeat_interleave(torch.eye(4)[None], 4, 0).to(imgs.device)
+            bda_4x4[:,:2,:2] = bda[:,:2,:2]
+            bda_4x4 = bda_4x4[:,None].repeat(1,N,1,1).reshape(B*N,4,4)
+            ida_mat = torch.repeat_interleave(torch.eye(3)[None], B * N, dim=0).view(B, N, 3, 3).to(imgs[0].device)
+            ida_mat[:,:,:3,:3] = post_rots
+            ida_mat[:,:,:2,2] = post_trans[:,:,:2]
+            trans_cam_to_img = torch.zeros(B, N, 3, 4).to(imgs.device)
+            trans_cam_to_img[:,:,:3,:3] = ida_mat.matmul(intrins)
+            trans_lidar_to_cam = torch.inverse(sensor2egos)
+            image_shape = torch.tensor([H_,W_]).to(imgs.device).float()
+            if self.depth_attn_cumsum:
+                frustum_features = depth.cumsum(1).reshape(B,N,-1,H,W)
+            else:
+                frustum_features = depth.reshape(B,N,-1,H,W)
+                
+            voxel_score = self.frustum_to_voxel(trans_lidar_to_cam, trans_cam_to_img, image_shape, bda_4x4, frustum_features)
+            breakpoint()
+            img_feats = img_feats * voxel_score
+            img_feats = self.depth_attn_downsample_conv(img_feats)
         outs = self.occ_head(img_feats)
         # assert voxel_semantics.min() >= 0 and voxel_semantics.max() <= 17
         kwargs['bda'] = img_inputs[-1]
@@ -277,7 +318,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         # img_feats: List[(B, C, Dz, Dy, Dx)/(B, C, Dy, Dx) , ]
         # pts_feats: None
         # depth: (B*N_views, D, fH, fW)
-        img_feats, _, _ = self.extract_feat(
+        img_feats, _, depth = self.extract_feat(
             points, img_inputs=img, img_metas=img_metas, **kwargs)
         
         det_feats, occ_feats, seg_feats =  img_feats
@@ -287,14 +328,14 @@ class BEVDepth4D_MTL(BEVDepth4D):
             bbox_out = [dict(pts_bbox=bbox_pts[0])]
             
         if self.occ_head is not None:
-            occ_out = self.simple_test_occ(occ_feats, img_metas)    # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
+            occ_out = self.simple_test_occ(occ_feats, img_metas, depth, img)    # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
     
         if self.seg_head is not None:
             seg_out = self.seg_head(seg_feats)
 
         return bbox_out, occ_out, voxel_semantics, mask_lidar, mask_camera, seg_out, gt_seg_mask
 
-    def simple_test_occ(self, img_feats, img_metas=None):
+    def simple_test_occ(self, img_feats, img_metas=None, depth=None, img_inputs=None):
         """
         Args:
             img_feats: (B, C, Dz, Dy, Dx) / (B, C, Dy, Dx)
@@ -350,6 +391,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
             return self.extract_img_feat_sequential(img_inputs, kwargs['feat_prev'])
         imgs, sensor2keyegos, ego2globals, intrins, post_rots, post_trans, \
         bda, _ = self.prepare_inputs(img_inputs)
+        
 
         """Extract features of images."""
         bev_feat_list = []
@@ -371,9 +413,13 @@ class BEVDepth4D_MTL(BEVDepth4D):
                     # bev_feat: (B, C, Dy, Dx)
                     # depth: (B*N_views, D, fH, fW)
                     bev_feat, depth = self.prepare_bev_feat(*inputs_curr)
+                    if self.down_sample_for_3d_pooling is not None:
+                        bev_feat = self.down_sample_for_3d_pooling(bev_feat)
                 else:
                     with torch.no_grad():
                         bev_feat, depth = self.prepare_bev_feat(*inputs_curr)
+                        if self.down_sample_for_3d_pooling is not None:
+                            bev_feat = self.down_sample_for_3d_pooling(bev_feat)
             else:
                 # https://github.com/HuangJunJie2017/BEVDet/issues/275
                 bev_feat = torch.zeros_like(bev_feat_list[0])
@@ -420,8 +466,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
 
         bev_feat = torch.cat(bev_feat_list, dim=1)      # (B, N_frames*C, Dy, Dx)
         
-        if self.down_sample_for_3d_pooling is not None:
-            bev_feat = self.down_sample_for_3d_pooling(bev_feat)
         x = self.bev_encoder(bev_feat)
 
         return x, depth_list[0]
@@ -435,7 +479,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
         Returns:
             x: (B, C', 2*Dy, 2*Dx)
         """
-        
         det_bev = self.img_bev_encoder_backbone(x)
         
         if self.occ_bev_encoder_backbone is not None:

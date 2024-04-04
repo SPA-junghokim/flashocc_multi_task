@@ -212,7 +212,6 @@ class PrepareImageInputs(object):
             post_tran = torch.zeros(2)
             # 当前相机内参
             intrin = torch.Tensor(cam_data['cam_intrinsic'])
-
             # 获取当前相机的sensor2ego(4x4), ego2global(4x4)矩阵.
             sensor2ego, ego2global = \
                 self.get_sensor_transforms(results['curr'], cam_name)
