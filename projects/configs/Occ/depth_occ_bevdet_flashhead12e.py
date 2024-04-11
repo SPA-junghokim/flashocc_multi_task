@@ -36,9 +36,8 @@ grid_config = {
 }
 
 voxel_size = [0.1, 0.1, 0.2]
+numC_Trans = 32
 
-numC_Trans = 64
-numC_Trans_pool = 64
 multi_adj_frame_id_cfg = (1, 1, 1)
 
 if len(range(*multi_adj_frame_id_cfg)) == 0:
@@ -74,51 +73,42 @@ model = dict(
         grid_config=grid_config,
         input_size=data_config['input_size'],
         in_channels=256,
-        out_channels=numC_Trans_pool,
+        out_channels=numC_Trans,
         sid=False,
-        collapse_z=True,
+        collapse_z=False,
         downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
         ),
-    down_sample_for_3d_pooling=[numC_Trans_pool*16, numC_Trans],
     img_bev_encoder_backbone=dict(
-        type='CustomResNet',
-        numC_input=numC_Trans + numC_Trans_cat,
-        num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
-    img_bev_encoder_neck=dict(
-        type='FPN_LSS',
-        in_channels=numC_Trans * 8 + numC_Trans * 2,
-        out_channels=256),
+        type='CustomResNet3D',
+        numC_input=numC_Trans,
+        num_layer=[1, 2, 4],
+        with_cp=False,
+        num_channels=[numC_Trans, numC_Trans*2, numC_Trans*4],
+        stride=[1, 2, 2],
+        backbone_output_ids=[0, 1, 2]),
+    img_bev_encoder_neck=dict(type='LSSFPN3D',
+                              in_channels=numC_Trans*7,
+                              out_channels=numC_Trans),
     occ_head=dict(
-        type='RenderOCCHead2D',
+        type='BEVOCCHead2D',
+        channel_down_for_3d=512,
         in_dim=256,
         out_dim=256,
         Dz=16,
         use_mask=True,
         num_classes=18,
-        use_predicter=False,
+        use_predicter=True,
         class_wise=False,
-        
-        use_3d_loss=True,
-        class_balance=True,
-        
         loss_occ=dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
-            loss_weight=1.0),
-        
-        nerf_head=dict(
-            type='NerfHead',
-            point_cloud_range=[-40, -40, -1, 40, 40, 5.4],
-            voxel_size=0.4,
-            scene_center=[0, 0, 2.2],
-            radius=39,
-            use_depth_sup=True,
-            weight_depth=0.1,
-            weight_semantic=0.1,
+            ignore_index=255,
+            loss_weight=1.0,
         ),
+        sololoss=True,
+        loss_weight=10,
     ),
-    
     det_loss_weight = 1,
     occ_loss_weight = 1,
     seg_loss_weight = 1.,
@@ -135,9 +125,6 @@ bda_aug_conf = dict(
     flip_dx_ratio=0.5,
     flip_dy_ratio=0.5
 )
-
-depth_gt_path = 'data/nuscenes/depth_gt'
-semantic_gt_path = 'data/nuscenes/seg_gt_lidarseg'
 
 train_pipeline = [
     dict(
@@ -161,9 +148,7 @@ train_pipeline = [
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
         type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar','mask_camera',
-                                'rays'
-                               ])
+                                'mask_lidar', 'mask_camera'])
 ]
 
 test_pipeline = [
@@ -191,8 +176,7 @@ test_pipeline = [
                 class_names=class_names,
                 with_label=False),
             dict(type='Collect3D', keys=['points', 'img_inputs', 'voxel_semantics',
-                                        'mask_lidar','mask_camera',
-                                        'rays'])
+                                'mask_lidar', 'mask_camera'])
         ])
 ]
 
@@ -211,7 +195,6 @@ share_data_config = dict(
     modality=input_modality,
     stereo=False,
     filter_empty_gt=False,
-    # img_info_prototype='bevdet4d',
     img_info_prototype='bevdet4d',
     multi_adj_frame_id_cfg=multi_adj_frame_id_cfg,
 )
@@ -234,13 +217,7 @@ data = dict(
         use_valid_flag=True,
         # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
         # and box_type_3d='Depth' in sunrgbd and scannet dataset.
-        box_type_3d='LiDAR',
-        use_rays=True,
-        depth_gt_path=depth_gt_path,
-        semantic_gt_path=semantic_gt_path,
-        aux_frames=[-3,-2,-1,1,2,3],
-        max_ray_nums=38400,
-        ),
+        box_type_3d='LiDAR'),
     val=test_data_config,
     test=test_data_config
     )
@@ -257,7 +234,7 @@ lr_config = dict(
     warmup_iters=200,
     warmup_ratio=0.001,
     step=[24, ])
-runner = dict(type='EpochBasedRunner', max_epochs=24)
+runner = dict(type='EpochBasedRunner', max_epochs=12)
 
 custom_hooks = [
     dict(
