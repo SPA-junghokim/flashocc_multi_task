@@ -1,0 +1,2536 @@
+2024-04-04 19:04:37,736 - mmdet - INFO - Environment info:
+------------------------------------------------------------
+sys.platform: linux
+Python: 3.8.0 (default, Dec  9 2021, 17:53:27) [GCC 8.4.0]
+CUDA available: True
+GPU 0,1,2,3: NVIDIA GeForce RTX 3090
+CUDA_HOME: /usr/local/cuda
+NVCC: Cuda compilation tools, release 11.1, V11.1.105
+GCC: x86_64-linux-gnu-gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0
+PyTorch: 1.10.0+cu111
+PyTorch compiling details: PyTorch built with:
+  - GCC 7.3
+  - C++ Version: 201402
+  - Intel(R) Math Kernel Library Version 2020.0.0 Product Build 20191122 for Intel(R) 64 architecture applications
+  - Intel(R) MKL-DNN v2.2.3 (Git Hash 7336ca9f055cf1bfa13efb658fe15dc9b41f0740)
+  - OpenMP 201511 (a.k.a. OpenMP 4.5)
+  - LAPACK is enabled (usually provided by MKL)
+  - NNPACK is enabled
+  - CPU capability usage: AVX512
+  - CUDA Runtime 11.1
+  - NVCC architecture flags: -gencode;arch=compute_37,code=sm_37;-gencode;arch=compute_50,code=sm_50;-gencode;arch=compute_60,code=sm_60;-gencode;arch=compute_70,code=sm_70;-gencode;arch=compute_75,code=sm_75;-gencode;arch=compute_80,code=sm_80;-gencode;arch=compute_86,code=sm_86
+  - CuDNN 8.0.5
+  - Magma 2.5.2
+  - Build settings: BLAS_INFO=mkl, BUILD_TYPE=Release, CUDA_VERSION=11.1, CUDNN_VERSION=8.0.5, CXX_COMPILER=/opt/rh/devtoolset-7/root/usr/bin/c++, CXX_FLAGS= -Wno-deprecated -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -fopenmp -DNDEBUG -DUSE_KINETO -DUSE_FBGEMM -DUSE_QNNPACK -DUSE_PYTORCH_QNNPACK -DUSE_XNNPACK -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DEDGE_PROFILER_USE_KINETO -O2 -fPIC -Wno-narrowing -Wall -Wextra -Werror=return-type -Wno-missing-field-initializers -Wno-type-limits -Wno-array-bounds -Wno-unknown-pragmas -Wno-sign-compare -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -Wno-unused-result -Wno-unused-local-typedefs -Wno-strict-overflow -Wno-strict-aliasing -Wno-error=deprecated-declarations -Wno-stringop-overflow -Wno-psabi -Wno-error=pedantic -Wno-error=redundant-decls -Wno-error=old-style-cast -fdiagnostics-color=always -faligned-new -Wno-unused-but-set-variable -Wno-maybe-uninitialized -fno-math-errno -fno-trapping-math -Werror=format -Wno-stringop-overflow, LAPACK_INFO=mkl, PERF_WITH_AVX=1, PERF_WITH_AVX2=1, PERF_WITH_AVX512=1, TORCH_VERSION=1.10.0, USE_CUDA=ON, USE_CUDNN=ON, USE_EXCEPTION_PTR=1, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_MKL=ON, USE_MKLDNN=ON, USE_MPI=OFF, USE_NCCL=ON, USE_NNPACK=ON, USE_OPENMP=ON, 
+
+TorchVision: 0.11.0+cu111
+OpenCV: 4.7.0
+MMCV: 1.5.3
+MMCV Compiler: GCC 7.5
+MMCV CUDA Compiler: 11.1
+MMDetection: 2.25.1
+MMSegmentation: 0.25.0
+MMDetection3D: 1.0.0rc4+
+spconv2.0: False
+------------------------------------------------------------
+
+2024-04-04 19:04:39,469 - mmdet - INFO - Distributed training: True
+2024-04-04 19:04:41,096 - mmdet - INFO - Config:
+point_cloud_range = [-40.0, -40.0, -1.0, 40.0, 40.0, 5.4]
+class_names = [
+    'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
+    'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
+]
+dataset_type = 'NuScenesDatasetOccpancy'
+data_root = 'data/nuscenes/'
+input_modality = dict(
+    use_lidar=False,
+    use_camera=True,
+    use_radar=False,
+    use_map=False,
+    use_external=False)
+file_client_args = dict(backend='disk')
+train_pipeline = [
+    dict(
+        type='PrepareImageInputs',
+        is_train=True,
+        data_config=dict(
+            cams=[
+                'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT',
+                'CAM_BACK_LEFT', 'CAM_BACK', 'CAM_BACK_RIGHT'
+            ],
+            Ncams=6,
+            input_size=(256, 704),
+            src_size=(900, 1600),
+            resize=(-0.06, 0.11),
+            rot=(-5.4, 5.4),
+            flip=True,
+            crop_h=(0.0, 0.0),
+            resize_test=0.0),
+        sequential=True),
+    dict(
+        type='LoadAnnotationsBEVDepth',
+        bda_aug_conf=dict(
+            rot_lim=(-0.0, 0.0),
+            scale_lim=(1.0, 1.0),
+            flip_dx_ratio=0.5,
+            flip_dy_ratio=0.5),
+        classes=[
+            'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+            'barrier', 'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
+        ],
+        is_train=True),
+    dict(type='LoadOccGTFromFile', ignore_nonvisible=True),
+    dict(
+        type='LoadPointsFromFile',
+        coord_type='LIDAR',
+        load_dim=5,
+        use_dim=5,
+        file_client_args=dict(backend='disk')),
+    dict(
+        type='PointToMultiViewDepth',
+        downsample=1,
+        grid_config=dict(
+            x=[-40, 40, 0.4],
+            y=[-40, 40, 0.4],
+            z=[-1, 5.4, 0.4],
+            depth=[1.0, 45.0, 0.5])),
+    dict(
+        type='DefaultFormatBundle3D',
+        class_names=[
+            'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+            'barrier', 'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
+        ]),
+    dict(
+        type='Collect3D',
+        keys=[
+            'img_inputs', 'gt_depth', 'voxel_semantics', 'mask_lidar',
+            'mask_camera'
+        ])
+]
+test_pipeline = [
+    dict(
+        type='PrepareImageInputs',
+        data_config=dict(
+            cams=[
+                'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT',
+                'CAM_BACK_LEFT', 'CAM_BACK', 'CAM_BACK_RIGHT'
+            ],
+            Ncams=6,
+            input_size=(256, 704),
+            src_size=(900, 1600),
+            resize=(-0.06, 0.11),
+            rot=(-5.4, 5.4),
+            flip=True,
+            crop_h=(0.0, 0.0),
+            resize_test=0.0),
+        sequential=False),
+    dict(
+        type='LoadAnnotationsBEVDepth',
+        bda_aug_conf=dict(
+            rot_lim=(-0.0, 0.0),
+            scale_lim=(1.0, 1.0),
+            flip_dx_ratio=0.5,
+            flip_dy_ratio=0.5),
+        classes=[
+            'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+            'barrier', 'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
+        ],
+        is_train=False),
+    dict(
+        type='LoadPointsFromFile',
+        coord_type='LIDAR',
+        load_dim=5,
+        use_dim=5,
+        file_client_args=dict(backend='disk')),
+    dict(type='LoadOccGTFromFile'),
+    dict(
+        type='MultiScaleFlipAug3D',
+        img_scale=(1333, 800),
+        pts_scale_ratio=1,
+        flip=False,
+        transforms=[
+            dict(
+                type='DefaultFormatBundle3D',
+                class_names=[
+                    'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+                    'barrier', 'motorcycle', 'bicycle', 'pedestrian',
+                    'traffic_cone'
+                ],
+                with_label=False),
+            dict(
+                type='Collect3D',
+                keys=[
+                    'points', 'img_inputs', 'voxel_semantics', 'mask_lidar',
+                    'mask_camera'
+                ])
+        ])
+]
+eval_pipeline = [
+    dict(
+        type='LoadPointsFromFile',
+        coord_type='LIDAR',
+        load_dim=5,
+        use_dim=5,
+        file_client_args=dict(backend='disk')),
+    dict(
+        type='LoadPointsFromMultiSweeps',
+        sweeps_num=10,
+        file_client_args=dict(backend='disk')),
+    dict(
+        type='DefaultFormatBundle3D',
+        class_names=[
+            'car', 'truck', 'trailer', 'bus', 'construction_vehicle',
+            'bicycle', 'motorcycle', 'pedestrian', 'traffic_cone', 'barrier'
+        ],
+        with_label=False),
+    dict(type='Collect3D', keys=['points'])
+]
+data = dict(
+    samples_per_gpu=4,
+    workers_per_gpu=4,
+    train=dict(
+        type='NuScenesDatasetOccpancy',
+        data_root='data/nuscenes/',
+        ann_file='data/nuscenes/bevdetv2-nuscenes_infos_train_seg.pkl',
+        pipeline=[
+            dict(
+                type='PrepareImageInputs',
+                is_train=True,
+                data_config=dict(
+                    cams=[
+                        'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT',
+                        'CAM_BACK_LEFT', 'CAM_BACK', 'CAM_BACK_RIGHT'
+                    ],
+                    Ncams=6,
+                    input_size=(256, 704),
+                    src_size=(900, 1600),
+                    resize=(-0.06, 0.11),
+                    rot=(-5.4, 5.4),
+                    flip=True,
+                    crop_h=(0.0, 0.0),
+                    resize_test=0.0),
+                sequential=True),
+            dict(
+                type='LoadAnnotationsBEVDepth',
+                bda_aug_conf=dict(
+                    rot_lim=(-0.0, 0.0),
+                    scale_lim=(1.0, 1.0),
+                    flip_dx_ratio=0.5,
+                    flip_dy_ratio=0.5),
+                classes=[
+                    'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+                    'barrier', 'motorcycle', 'bicycle', 'pedestrian',
+                    'traffic_cone'
+                ],
+                is_train=True),
+            dict(type='LoadOccGTFromFile', ignore_nonvisible=True),
+            dict(
+                type='LoadPointsFromFile',
+                coord_type='LIDAR',
+                load_dim=5,
+                use_dim=5,
+                file_client_args=dict(backend='disk')),
+            dict(
+                type='PointToMultiViewDepth',
+                downsample=1,
+                grid_config=dict(
+                    x=[-40, 40, 0.4],
+                    y=[-40, 40, 0.4],
+                    z=[-1, 5.4, 0.4],
+                    depth=[1.0, 45.0, 0.5])),
+            dict(
+                type='DefaultFormatBundle3D',
+                class_names=[
+                    'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+                    'barrier', 'motorcycle', 'bicycle', 'pedestrian',
+                    'traffic_cone'
+                ]),
+            dict(
+                type='Collect3D',
+                keys=[
+                    'img_inputs', 'gt_depth', 'voxel_semantics', 'mask_lidar',
+                    'mask_camera'
+                ])
+        ],
+        classes=[
+            'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+            'barrier', 'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
+        ],
+        modality=dict(
+            use_lidar=False,
+            use_camera=True,
+            use_radar=False,
+            use_map=False,
+            use_external=False),
+        test_mode=False,
+        box_type_3d='LiDAR',
+        use_valid_flag=True,
+        stereo=False,
+        filter_empty_gt=False,
+        img_info_prototype='bevdet4d',
+        multi_adj_frame_id_cfg=(1, 1, 1)),
+    val=dict(
+        type='NuScenesDatasetOccpancy',
+        data_root='data/nuscenes/',
+        ann_file='data/nuscenes/bevdetv2-nuscenes_infos_val_seg.pkl',
+        pipeline=[
+            dict(
+                type='PrepareImageInputs',
+                data_config=dict(
+                    cams=[
+                        'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT',
+                        'CAM_BACK_LEFT', 'CAM_BACK', 'CAM_BACK_RIGHT'
+                    ],
+                    Ncams=6,
+                    input_size=(256, 704),
+                    src_size=(900, 1600),
+                    resize=(-0.06, 0.11),
+                    rot=(-5.4, 5.4),
+                    flip=True,
+                    crop_h=(0.0, 0.0),
+                    resize_test=0.0),
+                sequential=False),
+            dict(
+                type='LoadAnnotationsBEVDepth',
+                bda_aug_conf=dict(
+                    rot_lim=(-0.0, 0.0),
+                    scale_lim=(1.0, 1.0),
+                    flip_dx_ratio=0.5,
+                    flip_dy_ratio=0.5),
+                classes=[
+                    'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+                    'barrier', 'motorcycle', 'bicycle', 'pedestrian',
+                    'traffic_cone'
+                ],
+                is_train=False),
+            dict(
+                type='LoadPointsFromFile',
+                coord_type='LIDAR',
+                load_dim=5,
+                use_dim=5,
+                file_client_args=dict(backend='disk')),
+            dict(type='LoadOccGTFromFile'),
+            dict(
+                type='MultiScaleFlipAug3D',
+                img_scale=(1333, 800),
+                pts_scale_ratio=1,
+                flip=False,
+                transforms=[
+                    dict(
+                        type='DefaultFormatBundle3D',
+                        class_names=[
+                            'car', 'truck', 'construction_vehicle', 'bus',
+                            'trailer', 'barrier', 'motorcycle', 'bicycle',
+                            'pedestrian', 'traffic_cone'
+                        ],
+                        with_label=False),
+                    dict(
+                        type='Collect3D',
+                        keys=[
+                            'points', 'img_inputs', 'voxel_semantics',
+                            'mask_lidar', 'mask_camera'
+                        ])
+                ])
+        ],
+        classes=[
+            'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+            'barrier', 'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
+        ],
+        modality=dict(
+            use_lidar=False,
+            use_camera=True,
+            use_radar=False,
+            use_map=False,
+            use_external=False),
+        test_mode=True,
+        box_type_3d='LiDAR',
+        stereo=False,
+        filter_empty_gt=False,
+        img_info_prototype='bevdet4d',
+        multi_adj_frame_id_cfg=(1, 1, 1)),
+    test=dict(
+        type='NuScenesDatasetOccpancy',
+        data_root='data/nuscenes/',
+        ann_file='data/nuscenes/bevdetv2-nuscenes_infos_val_seg.pkl',
+        pipeline=[
+            dict(
+                type='PrepareImageInputs',
+                data_config=dict(
+                    cams=[
+                        'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT',
+                        'CAM_BACK_LEFT', 'CAM_BACK', 'CAM_BACK_RIGHT'
+                    ],
+                    Ncams=6,
+                    input_size=(256, 704),
+                    src_size=(900, 1600),
+                    resize=(-0.06, 0.11),
+                    rot=(-5.4, 5.4),
+                    flip=True,
+                    crop_h=(0.0, 0.0),
+                    resize_test=0.0),
+                sequential=False),
+            dict(
+                type='LoadAnnotationsBEVDepth',
+                bda_aug_conf=dict(
+                    rot_lim=(-0.0, 0.0),
+                    scale_lim=(1.0, 1.0),
+                    flip_dx_ratio=0.5,
+                    flip_dy_ratio=0.5),
+                classes=[
+                    'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+                    'barrier', 'motorcycle', 'bicycle', 'pedestrian',
+                    'traffic_cone'
+                ],
+                is_train=False),
+            dict(
+                type='LoadPointsFromFile',
+                coord_type='LIDAR',
+                load_dim=5,
+                use_dim=5,
+                file_client_args=dict(backend='disk')),
+            dict(type='LoadOccGTFromFile'),
+            dict(
+                type='MultiScaleFlipAug3D',
+                img_scale=(1333, 800),
+                pts_scale_ratio=1,
+                flip=False,
+                transforms=[
+                    dict(
+                        type='DefaultFormatBundle3D',
+                        class_names=[
+                            'car', 'truck', 'construction_vehicle', 'bus',
+                            'trailer', 'barrier', 'motorcycle', 'bicycle',
+                            'pedestrian', 'traffic_cone'
+                        ],
+                        with_label=False),
+                    dict(
+                        type='Collect3D',
+                        keys=[
+                            'points', 'img_inputs', 'voxel_semantics',
+                            'mask_lidar', 'mask_camera'
+                        ])
+                ])
+        ],
+        classes=[
+            'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+            'barrier', 'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
+        ],
+        modality=dict(
+            use_lidar=False,
+            use_camera=True,
+            use_radar=False,
+            use_map=False,
+            use_external=False),
+        test_mode=True,
+        box_type_3d='LiDAR',
+        stereo=False,
+        filter_empty_gt=False,
+        img_info_prototype='bevdet4d',
+        multi_adj_frame_id_cfg=(1, 1, 1)))
+evaluation = dict(
+    interval=1,
+    pipeline=[
+        dict(
+            type='PrepareImageInputs',
+            data_config=dict(
+                cams=[
+                    'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT',
+                    'CAM_BACK_LEFT', 'CAM_BACK', 'CAM_BACK_RIGHT'
+                ],
+                Ncams=6,
+                input_size=(256, 704),
+                src_size=(900, 1600),
+                resize=(-0.06, 0.11),
+                rot=(-5.4, 5.4),
+                flip=True,
+                crop_h=(0.0, 0.0),
+                resize_test=0.0),
+            sequential=False),
+        dict(
+            type='LoadAnnotationsBEVDepth',
+            bda_aug_conf=dict(
+                rot_lim=(-0.0, 0.0),
+                scale_lim=(1.0, 1.0),
+                flip_dx_ratio=0.5,
+                flip_dy_ratio=0.5),
+            classes=[
+                'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+                'barrier', 'motorcycle', 'bicycle', 'pedestrian',
+                'traffic_cone'
+            ],
+            is_train=False),
+        dict(
+            type='LoadPointsFromFile',
+            coord_type='LIDAR',
+            load_dim=5,
+            use_dim=5,
+            file_client_args=dict(backend='disk')),
+        dict(type='LoadOccGTFromFile'),
+        dict(
+            type='MultiScaleFlipAug3D',
+            img_scale=(1333, 800),
+            pts_scale_ratio=1,
+            flip=False,
+            transforms=[
+                dict(
+                    type='DefaultFormatBundle3D',
+                    class_names=[
+                        'car', 'truck', 'construction_vehicle', 'bus',
+                        'trailer', 'barrier', 'motorcycle', 'bicycle',
+                        'pedestrian', 'traffic_cone'
+                    ],
+                    with_label=False),
+                dict(
+                    type='Collect3D',
+                    keys=[
+                        'points', 'img_inputs', 'voxel_semantics',
+                        'mask_lidar', 'mask_camera'
+                    ])
+            ])
+    ],
+    start=24)
+checkpoint_config = dict(interval=1, max_keep_ckpts=5)
+log_config = dict(
+    interval=50,
+    hooks=[dict(type='TextLoggerHook'),
+           dict(type='TensorboardLoggerHook')])
+dist_params = dict(backend='nccl')
+log_level = 'INFO'
+work_dir = './debug'
+load_from = None
+resume_from = None
+workflow = [('train', 1)]
+opencv_num_threads = 0
+mp_start_method = 'fork'
+plugin = True
+plugin_dir = 'projects/mmdet3d_plugin/'
+data_config = dict(
+    cams=[
+        'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_BACK_LEFT',
+        'CAM_BACK', 'CAM_BACK_RIGHT'
+    ],
+    Ncams=6,
+    input_size=(256, 704),
+    src_size=(900, 1600),
+    resize=(-0.06, 0.11),
+    rot=(-5.4, 5.4),
+    flip=True,
+    crop_h=(0.0, 0.0),
+    resize_test=0.0)
+grid_config = dict(
+    x=[-40, 40, 0.4],
+    y=[-40, 40, 0.4],
+    z=[-1, 5.4, 0.4],
+    depth=[1.0, 45.0, 0.5])
+voxel_size = [0.1, 0.1, 0.2]
+numC_Trans = 32
+multi_adj_frame_id_cfg = (1, 1, 1)
+numC_Trans_cat = 0
+model = dict(
+    type='BEVDepth4D_MTL',
+    align_after_view_transfromation=False,
+    num_adj=0,
+    img_backbone=dict(
+        type='ResNet',
+        depth=50,
+        num_stages=4,
+        out_indices=(2, 3),
+        frozen_stages=-1,
+        norm_cfg=dict(type='BN', requires_grad=True),
+        norm_eval=False,
+        with_cp=True,
+        style='pytorch',
+        pretrained='torchvision://resnet50'),
+    img_neck=dict(
+        type='CustomFPN',
+        in_channels=[1024, 2048],
+        out_channels=256,
+        num_outs=1,
+        start_level=0,
+        out_ids=[0]),
+    img_view_transformer=dict(
+        type='LSSViewTransformerBEVDepth',
+        grid_config=dict(
+            x=[-40, 40, 0.4],
+            y=[-40, 40, 0.4],
+            z=[-1, 5.4, 0.4],
+            depth=[1.0, 45.0, 0.5]),
+        input_size=(256, 704),
+        in_channels=256,
+        out_channels=32,
+        sid=False,
+        collapse_z=False,
+        downsample=16,
+        depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96)),
+    img_bev_encoder_backbone=dict(
+        type='CustomResNet3D',
+        numC_input=32,
+        num_layer=[1, 2, 4],
+        with_cp=False,
+        num_channels=[32, 64, 128],
+        stride=[1, 2, 2],
+        backbone_output_ids=[0, 1, 2]),
+    img_bev_encoder_neck=dict(
+        type='LSSFPN3D', in_channels=224, out_channels=32),
+    img_bev_encoder=dict(
+        type='CustomTriRes',
+        img_bev_encoder_backbone=dict(
+            type='CustomResNet', numC_input=32, num_channels=[32, 64, 128]),
+        img_bev_encoder_neck=dict(
+            type='FPN_LSS', in_channels=224, out_channels=32),
+        grid_config=dict(
+            x=[-40, 40, 0.4],
+            y=[-40, 40, 0.4],
+            z=[-1, 5.4, 0.4],
+            depth=[1.0, 45.0, 0.5])),
+    occ_head=dict(
+        type='BEVOCCHead2D',
+        channel_down_for_3d=512,
+        in_dim=256,
+        out_dim=256,
+        Dz=16,
+        use_mask=True,
+        num_classes=18,
+        use_predicter=True,
+        class_wise=False,
+        loss_occ=dict(
+            type='CrossEntropyLoss',
+            use_sigmoid=False,
+            ignore_index=255,
+            loss_weight=1.0),
+        sololoss=True,
+        loss_weight=10),
+    det_loss_weight=1,
+    occ_loss_weight=1,
+    seg_loss_weight=1.0)
+bda_aug_conf = dict(
+    rot_lim=(-0.0, 0.0),
+    scale_lim=(1.0, 1.0),
+    flip_dx_ratio=0.5,
+    flip_dy_ratio=0.5)
+share_data_config = dict(
+    type='NuScenesDatasetOccpancy',
+    data_root='data/nuscenes/',
+    classes=[
+        'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
+        'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
+    ],
+    modality=dict(
+        use_lidar=False,
+        use_camera=True,
+        use_radar=False,
+        use_map=False,
+        use_external=False),
+    stereo=False,
+    filter_empty_gt=False,
+    img_info_prototype='bevdet4d',
+    multi_adj_frame_id_cfg=(1, 1, 1))
+test_data_config = dict(
+    pipeline=[
+        dict(
+            type='PrepareImageInputs',
+            data_config=dict(
+                cams=[
+                    'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT',
+                    'CAM_BACK_LEFT', 'CAM_BACK', 'CAM_BACK_RIGHT'
+                ],
+                Ncams=6,
+                input_size=(256, 704),
+                src_size=(900, 1600),
+                resize=(-0.06, 0.11),
+                rot=(-5.4, 5.4),
+                flip=True,
+                crop_h=(0.0, 0.0),
+                resize_test=0.0),
+            sequential=False),
+        dict(
+            type='LoadAnnotationsBEVDepth',
+            bda_aug_conf=dict(
+                rot_lim=(-0.0, 0.0),
+                scale_lim=(1.0, 1.0),
+                flip_dx_ratio=0.5,
+                flip_dy_ratio=0.5),
+            classes=[
+                'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+                'barrier', 'motorcycle', 'bicycle', 'pedestrian',
+                'traffic_cone'
+            ],
+            is_train=False),
+        dict(
+            type='LoadPointsFromFile',
+            coord_type='LIDAR',
+            load_dim=5,
+            use_dim=5,
+            file_client_args=dict(backend='disk')),
+        dict(type='LoadOccGTFromFile'),
+        dict(
+            type='MultiScaleFlipAug3D',
+            img_scale=(1333, 800),
+            pts_scale_ratio=1,
+            flip=False,
+            transforms=[
+                dict(
+                    type='DefaultFormatBundle3D',
+                    class_names=[
+                        'car', 'truck', 'construction_vehicle', 'bus',
+                        'trailer', 'barrier', 'motorcycle', 'bicycle',
+                        'pedestrian', 'traffic_cone'
+                    ],
+                    with_label=False),
+                dict(
+                    type='Collect3D',
+                    keys=[
+                        'points', 'img_inputs', 'voxel_semantics',
+                        'mask_lidar', 'mask_camera'
+                    ])
+            ])
+    ],
+    ann_file='data/nuscenes/bevdetv2-nuscenes_infos_val_seg.pkl',
+    type='NuScenesDatasetOccpancy',
+    data_root='data/nuscenes/',
+    classes=[
+        'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
+        'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
+    ],
+    modality=dict(
+        use_lidar=False,
+        use_camera=True,
+        use_radar=False,
+        use_map=False,
+        use_external=False),
+    stereo=False,
+    filter_empty_gt=False,
+    img_info_prototype='bevdet4d',
+    multi_adj_frame_id_cfg=(1, 1, 1))
+key = 'test'
+optimizer = dict(type='AdamW', lr=0.0001, weight_decay=0.01)
+optimizer_config = dict(grad_clip=dict(max_norm=5, norm_type=2))
+lr_config = dict(
+    policy='step',
+    warmup='linear',
+    warmup_iters=200,
+    warmup_ratio=0.001,
+    step=[24])
+runner = dict(type='EpochBasedRunner', max_epochs=24)
+custom_hooks = [
+    dict(type='MEGVIIEMAHook', init_updates=10560, priority='NORMAL')
+]
+gpu_ids = range(0, 1)
+
+2024-04-04 19:04:41,098 - mmdet - INFO - Set random seed to 0, deterministic: False
+2024-04-04 19:04:41,566 - mmdet - INFO - initialize ResNet with init_cfg {'type': 'Pretrained', 'checkpoint': 'torchvision://resnet50'}
+2024-04-04 19:04:41,709 - mmdet - INFO - initialize CustomFPN with init_cfg {'type': 'Xavier', 'layer': 'Conv2d', 'distribution': 'uniform'}
+Name of parameter - Initialization information
+
+img_backbone.conv1.weight - torch.Size([64, 3, 7, 7]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.bn1.weight - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.bn1.bias - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.0.conv1.weight - torch.Size([64, 64, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.0.bn1.weight - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.0.bn1.bias - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.0.conv2.weight - torch.Size([64, 64, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.0.bn2.weight - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.0.bn2.bias - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.0.conv3.weight - torch.Size([256, 64, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.0.bn3.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.0.bn3.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.0.downsample.0.weight - torch.Size([256, 64, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.0.downsample.1.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.0.downsample.1.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.1.conv1.weight - torch.Size([64, 256, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.1.bn1.weight - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.1.bn1.bias - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.1.conv2.weight - torch.Size([64, 64, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.1.bn2.weight - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.1.bn2.bias - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.1.conv3.weight - torch.Size([256, 64, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.1.bn3.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.1.bn3.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.2.conv1.weight - torch.Size([64, 256, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.2.bn1.weight - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.2.bn1.bias - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.2.conv2.weight - torch.Size([64, 64, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.2.bn2.weight - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.2.bn2.bias - torch.Size([64]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.2.conv3.weight - torch.Size([256, 64, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.2.bn3.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer1.2.bn3.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.0.conv1.weight - torch.Size([128, 256, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.0.bn1.weight - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.0.bn1.bias - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.0.conv2.weight - torch.Size([128, 128, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.0.bn2.weight - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.0.bn2.bias - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.0.conv3.weight - torch.Size([512, 128, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.0.bn3.weight - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.0.bn3.bias - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.0.downsample.0.weight - torch.Size([512, 256, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.0.downsample.1.weight - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.0.downsample.1.bias - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.1.conv1.weight - torch.Size([128, 512, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.1.bn1.weight - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.1.bn1.bias - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.1.conv2.weight - torch.Size([128, 128, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.1.bn2.weight - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.1.bn2.bias - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.1.conv3.weight - torch.Size([512, 128, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.1.bn3.weight - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.1.bn3.bias - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.2.conv1.weight - torch.Size([128, 512, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.2.bn1.weight - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.2.bn1.bias - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.2.conv2.weight - torch.Size([128, 128, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.2.bn2.weight - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.2.bn2.bias - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.2.conv3.weight - torch.Size([512, 128, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.2.bn3.weight - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.2.bn3.bias - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.3.conv1.weight - torch.Size([128, 512, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.3.bn1.weight - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.3.bn1.bias - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.3.conv2.weight - torch.Size([128, 128, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.3.bn2.weight - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.3.bn2.bias - torch.Size([128]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.3.conv3.weight - torch.Size([512, 128, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.3.bn3.weight - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer2.3.bn3.bias - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.0.conv1.weight - torch.Size([256, 512, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.0.bn1.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.0.bn1.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.0.conv2.weight - torch.Size([256, 256, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.0.bn2.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.0.bn2.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.0.conv3.weight - torch.Size([1024, 256, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.0.bn3.weight - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.0.bn3.bias - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.0.downsample.0.weight - torch.Size([1024, 512, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.0.downsample.1.weight - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.0.downsample.1.bias - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.1.conv1.weight - torch.Size([256, 1024, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.1.bn1.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.1.bn1.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.1.conv2.weight - torch.Size([256, 256, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.1.bn2.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.1.bn2.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.1.conv3.weight - torch.Size([1024, 256, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.1.bn3.weight - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.1.bn3.bias - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.2.conv1.weight - torch.Size([256, 1024, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.2.bn1.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.2.bn1.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.2.conv2.weight - torch.Size([256, 256, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.2.bn2.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.2.bn2.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.2.conv3.weight - torch.Size([1024, 256, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.2.bn3.weight - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.2.bn3.bias - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.3.conv1.weight - torch.Size([256, 1024, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.3.bn1.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.3.bn1.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.3.conv2.weight - torch.Size([256, 256, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.3.bn2.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.3.bn2.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.3.conv3.weight - torch.Size([1024, 256, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.3.bn3.weight - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.3.bn3.bias - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.4.conv1.weight - torch.Size([256, 1024, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.4.bn1.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.4.bn1.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.4.conv2.weight - torch.Size([256, 256, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.4.bn2.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.4.bn2.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.4.conv3.weight - torch.Size([1024, 256, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.4.bn3.weight - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.4.bn3.bias - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.5.conv1.weight - torch.Size([256, 1024, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.5.bn1.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.5.bn1.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.5.conv2.weight - torch.Size([256, 256, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.5.bn2.weight - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.5.bn2.bias - torch.Size([256]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.5.conv3.weight - torch.Size([1024, 256, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.5.bn3.weight - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer3.5.bn3.bias - torch.Size([1024]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.0.conv1.weight - torch.Size([512, 1024, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.0.bn1.weight - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.0.bn1.bias - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.0.conv2.weight - torch.Size([512, 512, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.0.bn2.weight - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.0.bn2.bias - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.0.conv3.weight - torch.Size([2048, 512, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.0.bn3.weight - torch.Size([2048]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.0.bn3.bias - torch.Size([2048]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.0.downsample.0.weight - torch.Size([2048, 1024, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.0.downsample.1.weight - torch.Size([2048]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.0.downsample.1.bias - torch.Size([2048]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.1.conv1.weight - torch.Size([512, 2048, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.1.bn1.weight - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.1.bn1.bias - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.1.conv2.weight - torch.Size([512, 512, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.1.bn2.weight - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.1.bn2.bias - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.1.conv3.weight - torch.Size([2048, 512, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.1.bn3.weight - torch.Size([2048]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.1.bn3.bias - torch.Size([2048]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.2.conv1.weight - torch.Size([512, 2048, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.2.bn1.weight - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.2.bn1.bias - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.2.conv2.weight - torch.Size([512, 512, 3, 3]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.2.bn2.weight - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.2.bn2.bias - torch.Size([512]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.2.conv3.weight - torch.Size([2048, 512, 1, 1]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.2.bn3.weight - torch.Size([2048]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_backbone.layer4.2.bn3.bias - torch.Size([2048]): 
+PretrainedInit: load from torchvision://resnet50 
+
+img_neck.lateral_convs.0.conv.weight - torch.Size([256, 1024, 1, 1]): 
+XavierInit: gain=1, distribution=uniform, bias=0 
+
+img_neck.lateral_convs.0.conv.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_neck.lateral_convs.1.conv.weight - torch.Size([256, 2048, 1, 1]): 
+XavierInit: gain=1, distribution=uniform, bias=0 
+
+img_neck.lateral_convs.1.conv.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_neck.fpn_convs.0.conv.weight - torch.Size([256, 256, 3, 3]): 
+XavierInit: gain=1, distribution=uniform, bias=0 
+
+img_neck.fpn_convs.0.conv.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.reduce_conv.0.weight - torch.Size([256, 256, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.reduce_conv.0.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.reduce_conv.1.weight - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.reduce_conv.1.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.context_conv.weight - torch.Size([32, 256, 1, 1]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.context_conv.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_mlp.fc1.weight - torch.Size([256, 27]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_mlp.fc1.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_mlp.fc2.weight - torch.Size([256, 256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_mlp.fc2.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_se.conv_reduce.weight - torch.Size([256, 256, 1, 1]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_se.conv_reduce.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_se.conv_expand.weight - torch.Size([256, 256, 1, 1]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_se.conv_expand.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.bn.weight - torch.Size([27]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.bn.bias - torch.Size([27]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.context_mlp.fc1.weight - torch.Size([256, 27]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.context_mlp.fc1.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.context_mlp.fc2.weight - torch.Size([256, 256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.context_mlp.fc2.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.context_se.conv_reduce.weight - torch.Size([256, 256, 1, 1]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.context_se.conv_reduce.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.context_se.conv_expand.weight - torch.Size([256, 256, 1, 1]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.context_se.conv_expand.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.0.conv1.weight - torch.Size([256, 256, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.0.bn1.weight - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.0.bn1.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.0.conv2.weight - torch.Size([256, 256, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.0.bn2.weight - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.0.bn2.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.1.conv1.weight - torch.Size([256, 256, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.1.bn1.weight - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.1.bn1.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.1.conv2.weight - torch.Size([256, 256, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.1.bn2.weight - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.1.bn2.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.2.conv1.weight - torch.Size([256, 256, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.2.bn1.weight - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.2.bn1.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.2.conv2.weight - torch.Size([256, 256, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.2.bn2.weight - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.2.bn2.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.aspp1.atrous_conv.weight - torch.Size([96, 256, 1, 1]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.aspp1.bn.weight - torch.Size([96]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.aspp1.bn.bias - torch.Size([96]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.aspp2.atrous_conv.weight - torch.Size([96, 256, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.aspp2.bn.weight - torch.Size([96]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.aspp2.bn.bias - torch.Size([96]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.aspp3.atrous_conv.weight - torch.Size([96, 256, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.aspp3.bn.weight - torch.Size([96]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.aspp3.bn.bias - torch.Size([96]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.aspp4.atrous_conv.weight - torch.Size([96, 256, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.aspp4.bn.weight - torch.Size([96]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.aspp4.bn.bias - torch.Size([96]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.global_avg_pool.1.weight - torch.Size([96, 256, 1, 1]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.global_avg_pool.2.weight - torch.Size([96]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.global_avg_pool.2.bias - torch.Size([96]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.conv1.weight - torch.Size([256, 480, 1, 1]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.bn1.weight - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.3.bn1.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.4.weight - torch.Size([88, 256, 1, 1]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_view_transformer.depth_net.depth_conv.4.bias - torch.Size([88]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+occ_head.final_conv.conv.weight - torch.Size([256, 256, 3, 3]): 
+Initialized by user-defined `init_weights` in ConvModule  
+
+occ_head.final_conv.conv.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+occ_head.predicter.0.weight - torch.Size([512, 256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+occ_head.predicter.0.bias - torch.Size([512]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+occ_head.predicter.2.weight - torch.Size([288, 512]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+occ_head.predicter.2.bias - torch.Size([288]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+occ_head.channel_down_for_3d.weight - torch.Size([256, 512]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+occ_head.channel_down_for_3d.bias - torch.Size([256]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.0.conv1.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.0.bn1.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.0.bn1.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.0.conv2.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.0.bn2.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.0.bn2.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.0.downsample.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.0.downsample.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.1.conv1.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.1.bn1.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.1.bn1.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.1.conv2.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.1.bn2.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.0.1.bn2.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.0.conv1.weight - torch.Size([64, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.0.bn1.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.0.bn1.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.0.conv2.weight - torch.Size([64, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.0.bn2.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.0.bn2.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.0.downsample.weight - torch.Size([64, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.0.downsample.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.1.conv1.weight - torch.Size([64, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.1.bn1.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.1.bn1.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.1.conv2.weight - torch.Size([64, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.1.bn2.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.1.1.bn2.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.0.conv1.weight - torch.Size([128, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.0.bn1.weight - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.0.bn1.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.0.conv2.weight - torch.Size([128, 128, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.0.bn2.weight - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.0.bn2.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.0.downsample.weight - torch.Size([128, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.0.downsample.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.1.conv1.weight - torch.Size([128, 128, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.1.bn1.weight - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.1.bn1.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.1.conv2.weight - torch.Size([128, 128, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.1.bn2.weight - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.0.layers.2.1.bn2.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.0.conv1.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.0.bn1.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.0.bn1.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.0.conv2.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.0.bn2.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.0.bn2.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.0.downsample.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.0.downsample.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.1.conv1.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.1.bn1.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.1.bn1.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.1.conv2.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.1.bn2.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.0.1.bn2.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.0.conv1.weight - torch.Size([64, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.0.bn1.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.0.bn1.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.0.conv2.weight - torch.Size([64, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.0.bn2.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.0.bn2.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.0.downsample.weight - torch.Size([64, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.0.downsample.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.1.conv1.weight - torch.Size([64, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.1.bn1.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.1.bn1.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.1.conv2.weight - torch.Size([64, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.1.bn2.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.1.1.bn2.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.0.conv1.weight - torch.Size([128, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.0.bn1.weight - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.0.bn1.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.0.conv2.weight - torch.Size([128, 128, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.0.bn2.weight - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.0.bn2.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.0.downsample.weight - torch.Size([128, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.0.downsample.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.1.conv1.weight - torch.Size([128, 128, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.1.bn1.weight - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.1.bn1.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.1.conv2.weight - torch.Size([128, 128, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.1.bn2.weight - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.1.layers.2.1.bn2.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.0.conv1.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.0.bn1.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.0.bn1.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.0.conv2.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.0.bn2.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.0.bn2.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.0.downsample.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.0.downsample.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.1.conv1.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.1.bn1.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.1.bn1.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.1.conv2.weight - torch.Size([32, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.1.bn2.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.0.1.bn2.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.0.conv1.weight - torch.Size([64, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.0.bn1.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.0.bn1.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.0.conv2.weight - torch.Size([64, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.0.bn2.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.0.bn2.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.0.downsample.weight - torch.Size([64, 32, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.0.downsample.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.1.conv1.weight - torch.Size([64, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.1.bn1.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.1.bn1.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.1.conv2.weight - torch.Size([64, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.1.bn2.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.1.1.bn2.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.0.conv1.weight - torch.Size([128, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.0.bn1.weight - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.0.bn1.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.0.conv2.weight - torch.Size([128, 128, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.0.bn2.weight - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.0.bn2.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.0.downsample.weight - torch.Size([128, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.0.downsample.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.1.conv1.weight - torch.Size([128, 128, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.1.bn1.weight - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.1.bn1.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.1.conv2.weight - torch.Size([128, 128, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.1.bn2.weight - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_backbones.2.layers.2.1.bn2.bias - torch.Size([128]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.0.conv.0.weight - torch.Size([64, 224, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.0.conv.1.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.0.conv.1.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.0.conv.3.weight - torch.Size([64, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.0.conv.4.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.0.conv.4.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.0.up2.1.weight - torch.Size([32, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.0.up2.2.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.0.up2.2.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.0.up2.4.weight - torch.Size([32, 32, 1, 1]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.0.up2.4.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.1.conv.0.weight - torch.Size([64, 224, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.1.conv.1.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.1.conv.1.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.1.conv.3.weight - torch.Size([64, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.1.conv.4.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.1.conv.4.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.1.up2.1.weight - torch.Size([32, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.1.up2.2.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.1.up2.2.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.1.up2.4.weight - torch.Size([32, 32, 1, 1]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.1.up2.4.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.2.conv.0.weight - torch.Size([64, 224, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.2.conv.1.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.2.conv.1.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.2.conv.3.weight - torch.Size([64, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.2.conv.4.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.2.conv.4.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.2.up2.1.weight - torch.Size([32, 64, 3, 3]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.2.up2.2.weight - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.2.up2.2.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.2.up2.4.weight - torch.Size([32, 32, 1, 1]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.encoder_necks.2.up2.4.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.linears.0.weight - torch.Size([32, 512]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.linears.0.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.linears.1.weight - torch.Size([32, 6400]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.linears.1.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.linears.2.weight - torch.Size([32, 6400]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.linears.2.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.pooling_layer.0.weight - torch.Size([64, 32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.pooling_layer.0.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.pooling_layer.1.weight - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.pooling_layer.1.bias - torch.Size([64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.pooling_layer.3.weight - torch.Size([32, 64]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+
+img_bev_encoder.pooling_layer.3.bias - torch.Size([32]): 
+The value is the same before and after calling `init_weights` of BEVDepth4D_MTL  
+2024-04-04 19:04:41,745 - mmdet - INFO - Model:
+BEVDepth4D_MTL(
+  (img_backbone): ResNet(
+    (conv1): Conv2d(3, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+    (bn1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+    (relu): ReLU(inplace=True)
+    (maxpool): MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+    (layer1): ResLayer(
+      (0): Bottleneck(
+        (conv1): Conv2d(64, 64, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+        (downsample): Sequential(
+          (0): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+          (1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        )
+      )
+      (1): Bottleneck(
+        (conv1): Conv2d(256, 64, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+      )
+      (2): Bottleneck(
+        (conv1): Conv2d(256, 64, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(64, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+      )
+    )
+    (layer2): ResLayer(
+      (0): Bottleneck(
+        (conv1): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(128, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+        (downsample): Sequential(
+          (0): Conv2d(256, 512, kernel_size=(1, 1), stride=(2, 2), bias=False)
+          (1): BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        )
+      )
+      (1): Bottleneck(
+        (conv1): Conv2d(512, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(128, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+      )
+      (2): Bottleneck(
+        (conv1): Conv2d(512, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(128, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+      )
+      (3): Bottleneck(
+        (conv1): Conv2d(512, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(128, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+      )
+    )
+    (layer3): ResLayer(
+      (0): Bottleneck(
+        (conv1): Conv2d(512, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(256, 1024, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(1024, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+        (downsample): Sequential(
+          (0): Conv2d(512, 1024, kernel_size=(1, 1), stride=(2, 2), bias=False)
+          (1): BatchNorm2d(1024, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        )
+      )
+      (1): Bottleneck(
+        (conv1): Conv2d(1024, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(256, 1024, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(1024, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+      )
+      (2): Bottleneck(
+        (conv1): Conv2d(1024, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(256, 1024, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(1024, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+      )
+      (3): Bottleneck(
+        (conv1): Conv2d(1024, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(256, 1024, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(1024, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+      )
+      (4): Bottleneck(
+        (conv1): Conv2d(1024, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(256, 1024, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(1024, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+      )
+      (5): Bottleneck(
+        (conv1): Conv2d(1024, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(256, 1024, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(1024, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+      )
+    )
+    (layer4): ResLayer(
+      (0): Bottleneck(
+        (conv1): Conv2d(1024, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(512, 2048, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(2048, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+        (downsample): Sequential(
+          (0): Conv2d(1024, 2048, kernel_size=(1, 1), stride=(2, 2), bias=False)
+          (1): BatchNorm2d(2048, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        )
+      )
+      (1): Bottleneck(
+        (conv1): Conv2d(2048, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(512, 2048, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(2048, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+      )
+      (2): Bottleneck(
+        (conv1): Conv2d(2048, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn1): BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        (bn2): BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (conv3): Conv2d(512, 2048, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn3): BatchNorm2d(2048, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (relu): ReLU(inplace=True)
+      )
+    )
+  )
+  init_cfg={'type': 'Pretrained', 'checkpoint': 'torchvision://resnet50'}
+  (img_neck): CustomFPN(
+    (lateral_convs): ModuleList(
+      (0): ConvModule(
+        (conv): Conv2d(1024, 256, kernel_size=(1, 1), stride=(1, 1))
+      )
+      (1): ConvModule(
+        (conv): Conv2d(2048, 256, kernel_size=(1, 1), stride=(1, 1))
+      )
+    )
+    (fpn_convs): ModuleList(
+      (0): ConvModule(
+        (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      )
+    )
+  )
+  init_cfg={'type': 'Xavier', 'layer': 'Conv2d', 'distribution': 'uniform'}
+  (img_view_transformer): LSSViewTransformerBEVDepth(
+    (depth_net): DepthNet(
+      (reduce_conv): Sequential(
+        (0): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        (2): ReLU(inplace=True)
+      )
+      (context_conv): Conv2d(256, 32, kernel_size=(1, 1), stride=(1, 1))
+      (depth_mlp): Mlp(
+        (fc1): Linear(in_features=27, out_features=256, bias=True)
+        (act): ReLU()
+        (drop1): Dropout(p=0.0, inplace=False)
+        (fc2): Linear(in_features=256, out_features=256, bias=True)
+        (drop2): Dropout(p=0.0, inplace=False)
+      )
+      (depth_se): SELayer(
+        (conv_reduce): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1))
+        (act1): ReLU()
+        (conv_expand): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1))
+        (gate): Sigmoid()
+      )
+      (bn): BatchNorm1d(27, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+      (context_mlp): Mlp(
+        (fc1): Linear(in_features=27, out_features=256, bias=True)
+        (act): ReLU()
+        (drop1): Dropout(p=0.0, inplace=False)
+        (fc2): Linear(in_features=256, out_features=256, bias=True)
+        (drop2): Dropout(p=0.0, inplace=False)
+      )
+      (context_se): SELayer(
+        (conv_reduce): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1))
+        (act1): ReLU()
+        (conv_expand): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1))
+        (gate): Sigmoid()
+      )
+      (depth_conv): Sequential(
+        (0): BasicBlock(
+          (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (bn1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (bn2): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (relu): ReLU(inplace=True)
+        )
+        (1): BasicBlock(
+          (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (bn1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (bn2): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (relu): ReLU(inplace=True)
+        )
+        (2): BasicBlock(
+          (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (bn1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (bn2): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (relu): ReLU(inplace=True)
+        )
+        (3): ASPP(
+          (aspp1): _ASPPModule(
+            (atrous_conv): Conv2d(256, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(96, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+            (relu): ReLU()
+          )
+          (aspp2): _ASPPModule(
+            (atrous_conv): Conv2d(256, 96, kernel_size=(3, 3), stride=(1, 1), padding=(6, 6), dilation=(6, 6), bias=False)
+            (bn): BatchNorm2d(96, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+            (relu): ReLU()
+          )
+          (aspp3): _ASPPModule(
+            (atrous_conv): Conv2d(256, 96, kernel_size=(3, 3), stride=(1, 1), padding=(12, 12), dilation=(12, 12), bias=False)
+            (bn): BatchNorm2d(96, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+            (relu): ReLU()
+          )
+          (aspp4): _ASPPModule(
+            (atrous_conv): Conv2d(256, 96, kernel_size=(3, 3), stride=(1, 1), padding=(18, 18), dilation=(18, 18), bias=False)
+            (bn): BatchNorm2d(96, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+            (relu): ReLU()
+          )
+          (global_avg_pool): Sequential(
+            (0): AdaptiveAvgPool2d(output_size=(1, 1))
+            (1): Conv2d(256, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (2): BatchNorm2d(96, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+            (3): ReLU()
+          )
+          (conv1): Conv2d(480, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+          (bn1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (relu): ReLU()
+          (dropout): Dropout(p=0.5, inplace=False)
+        )
+        (4): Conv2d(256, 88, kernel_size=(1, 1), stride=(1, 1))
+      )
+    )
+    (loss_predict_depth_grad): FocalLoss()
+    (loss_predict_upsampledepth): FocalLoss()
+  )
+  (occ_head): BEVOCCHead2D(
+    (final_conv): ConvModule(
+      (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (activate): ReLU(inplace=True)
+    )
+    (predicter): Sequential(
+      (0): Linear(in_features=256, out_features=512, bias=True)
+      (1): Softplus(beta=1, threshold=20)
+      (2): Linear(in_features=512, out_features=288, bias=True)
+    )
+    (channel_down_for_3d): Linear(in_features=512, out_features=256, bias=True)
+    (cross_entropy_loss): CrossEntropyLoss()
+  )
+  (img_bev_encoder): CustomTriRes(
+    (encoder_backbones): ModuleList(
+      (0): CustomResNet(
+        (layers): Sequential(
+          (0): Sequential(
+            (0): BasicBlock(
+              (conv1): Conv2d(32, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+              (downsample): Conv2d(32, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+            )
+            (1): BasicBlock(
+              (conv1): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+            )
+          )
+          (1): Sequential(
+            (0): BasicBlock(
+              (conv1): Conv2d(32, 64, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+              (downsample): Conv2d(32, 64, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+            )
+            (1): BasicBlock(
+              (conv1): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+            )
+          )
+          (2): Sequential(
+            (0): BasicBlock(
+              (conv1): Conv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+              (downsample): Conv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+            )
+            (1): BasicBlock(
+              (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+            )
+          )
+        )
+      )
+      (1): CustomResNet(
+        (layers): Sequential(
+          (0): Sequential(
+            (0): BasicBlock(
+              (conv1): Conv2d(32, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+              (downsample): Conv2d(32, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+            )
+            (1): BasicBlock(
+              (conv1): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+            )
+          )
+          (1): Sequential(
+            (0): BasicBlock(
+              (conv1): Conv2d(32, 64, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+              (downsample): Conv2d(32, 64, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+            )
+            (1): BasicBlock(
+              (conv1): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+            )
+          )
+          (2): Sequential(
+            (0): BasicBlock(
+              (conv1): Conv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+              (downsample): Conv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+            )
+            (1): BasicBlock(
+              (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+            )
+          )
+        )
+      )
+      (2): CustomResNet(
+        (layers): Sequential(
+          (0): Sequential(
+            (0): BasicBlock(
+              (conv1): Conv2d(32, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+              (downsample): Conv2d(32, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+            )
+            (1): BasicBlock(
+              (conv1): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+            )
+          )
+          (1): Sequential(
+            (0): BasicBlock(
+              (conv1): Conv2d(32, 64, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+              (downsample): Conv2d(32, 64, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+            )
+            (1): BasicBlock(
+              (conv1): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+            )
+          )
+          (2): Sequential(
+            (0): BasicBlock(
+              (conv1): Conv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+              (downsample): Conv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+            )
+            (1): BasicBlock(
+              (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn1): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+              (bn2): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+              (relu): ReLU(inplace=True)
+            )
+          )
+        )
+      )
+    )
+    (encoder_necks): ModuleList(
+      (0): FPN_LSS(
+        (up): Upsample(scale_factor=4.0, mode=bilinear)
+        (conv): Sequential(
+          (0): Conv2d(224, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (2): ReLU(inplace=True)
+          (3): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (4): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (5): ReLU(inplace=True)
+        )
+        (up2): Sequential(
+          (0): Upsample(scale_factor=2.0, mode=bilinear)
+          (1): Conv2d(64, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (2): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (3): ReLU(inplace=True)
+          (4): Conv2d(32, 32, kernel_size=(1, 1), stride=(1, 1))
+        )
+      )
+      (1): FPN_LSS(
+        (up): Upsample(scale_factor=4.0, mode=bilinear)
+        (conv): Sequential(
+          (0): Conv2d(224, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (2): ReLU(inplace=True)
+          (3): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (4): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (5): ReLU(inplace=True)
+        )
+        (up2): Sequential(
+          (0): Upsample(scale_factor=2.0, mode=bilinear)
+          (1): Conv2d(64, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (2): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (3): ReLU(inplace=True)
+          (4): Conv2d(32, 32, kernel_size=(1, 1), stride=(1, 1))
+        )
+      )
+      (2): FPN_LSS(
+        (up): Upsample(scale_factor=4.0, mode=bilinear)
+        (conv): Sequential(
+          (0): Conv2d(224, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (2): ReLU(inplace=True)
+          (3): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (4): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (5): ReLU(inplace=True)
+        )
+        (up2): Sequential(
+          (0): Upsample(scale_factor=2.0, mode=bilinear)
+          (1): Conv2d(64, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (2): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+          (3): ReLU(inplace=True)
+          (4): Conv2d(32, 32, kernel_size=(1, 1), stride=(1, 1))
+        )
+      )
+    )
+    (linears): ModuleList(
+      (0): Linear(in_features=512, out_features=32, bias=True)
+      (1): Linear(in_features=6400, out_features=32, bias=True)
+      (2): Linear(in_features=6400, out_features=32, bias=True)
+    )
+    (pooling_layer): Sequential(
+      (0): Linear(in_features=32, out_features=64, bias=True)
+      (1): BatchNorm1d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+      (2): ReLU()
+      (3): Linear(in_features=64, out_features=32, bias=True)
+    )
+  )
+)
+2024-04-04 19:04:59,608 - mmdet - INFO - Start running, host: root@9226d200e472, work_dir: /mnt/sdd/jhkim5/flashocc_multi_task/debug
+2024-04-04 19:04:59,608 - mmdet - INFO - Hooks will be executed in the following order:
+before_run:
+(VERY_HIGH   ) StepLrUpdaterHook                  
+(NORMAL      ) CheckpointHook                     
+(NORMAL      ) MEGVIIEMAHook                      
+(VERY_LOW    ) TextLoggerHook                     
+(VERY_LOW    ) TensorboardLoggerHook              
+ -------------------- 
+before_train_epoch:
+(VERY_HIGH   ) StepLrUpdaterHook                  
+(NORMAL      ) DistSamplerSeedHook                
+(LOW         ) IterTimerHook                      
+(VERY_LOW    ) TextLoggerHook                     
+(VERY_LOW    ) TensorboardLoggerHook              
+ -------------------- 
+before_train_iter:
+(VERY_HIGH   ) StepLrUpdaterHook                  
+(LOW         ) IterTimerHook                      
+ -------------------- 
+after_train_iter:
+(ABOVE_NORMAL) OptimizerHook                      
+(NORMAL      ) CheckpointHook                     
+(NORMAL      ) MEGVIIEMAHook                      
+(LOW         ) IterTimerHook                      
+(VERY_LOW    ) TextLoggerHook                     
+(VERY_LOW    ) TensorboardLoggerHook              
+ -------------------- 
+after_train_epoch:
+(NORMAL      ) CheckpointHook                     
+(NORMAL      ) MEGVIIEMAHook                      
+(VERY_LOW    ) TextLoggerHook                     
+(VERY_LOW    ) TensorboardLoggerHook              
+ -------------------- 
+before_val_epoch:
+(NORMAL      ) DistSamplerSeedHook                
+(LOW         ) IterTimerHook                      
+(VERY_LOW    ) TextLoggerHook                     
+(VERY_LOW    ) TensorboardLoggerHook              
+ -------------------- 
+before_val_iter:
+(LOW         ) IterTimerHook                      
+ -------------------- 
+after_val_iter:
+(LOW         ) IterTimerHook                      
+ -------------------- 
+after_val_epoch:
+(VERY_LOW    ) TextLoggerHook                     
+(VERY_LOW    ) TensorboardLoggerHook              
+ -------------------- 
+after_run:
+(VERY_LOW    ) TextLoggerHook                     
+(VERY_LOW    ) TensorboardLoggerHook              
+ -------------------- 
+2024-04-04 19:04:59,609 - mmdet - INFO - workflow: [('train', 1)], max: 24 epochs
+2024-04-04 19:04:59,609 - mmdet - INFO - Checkpoints will be saved to /mnt/sdd/jhkim5/flashocc_multi_task/debug by HardDiskBackend.
