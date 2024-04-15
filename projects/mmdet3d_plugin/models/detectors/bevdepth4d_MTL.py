@@ -23,6 +23,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
                  det_loss_weight=1,
                  occ_loss_weight=1,
                  seg_loss_weight=1,
+                 img_bev_encoder=None,
                  img_bev_encoder_backbone=None,
                  occ_bev_encoder_backbone=None,
                  seg_bev_encoder_backbone=None,
@@ -72,6 +73,13 @@ class BEVDepth4D_MTL(BEVDepth4D):
         self.detection_backbone = detection_backbone
         self.detection_neck = detection_neck
         
+        if img_bev_encoder is not None:
+            self.img_bev_encoder = builder.build_backbone(img_bev_encoder)
+            del self.img_bev_encoder_backbone
+            del self.img_bev_encoder_neck
+        else:
+            self.img_bev_encoder = None
+
         self.depth_attn = depth_attn
         self.frustum_depth_attr = frustum_depth_attr
         self.frustum_depth_detach = frustum_depth_detach
@@ -557,35 +565,38 @@ class BEVDepth4D_MTL(BEVDepth4D):
         Returns:
             x: (B, C', 2*Dy, 2*Dx)
         """
-        det_bev = self.img_bev_encoder_backbone(x)
-        
-        if self.occ_bev_encoder_backbone is not None:
-            occ_bev = self.occ_bev_encoder_backbone(x)
-        else:
-            occ_bev = det_bev
-            
-        if self.seg_bev_encoder_backbone is not None:
-            seg_bev = self.seg_bev_encoder_backbone(x)
-        elif self.detection_backbone:
-            seg_bev = occ_bev
-        else:
+        if self.img_bev_encoder is not None:
+            det_bev = self.img_bev_encoder(x)
             seg_bev = det_bev
-        
-        
-        det_bev = self.img_bev_encoder_neck(det_bev)
-        
-        if self.occ_bev_encoder_neck is not None:
-            occ_bev = self.occ_bev_encoder_neck(occ_bev)
-        else:
             occ_bev = det_bev
-            
-        if self.seg_bev_encoder_neck is not None:
-            seg_bev = self.seg_bev_encoder_neck(seg_bev)
-        elif self.detection_neck or self.detection_backbone:
-            seg_bev = occ_bev
         else:
-            seg_bev = det_bev
-        
+            det_bev = self.img_bev_encoder_backbone(x)
+            if self.occ_bev_encoder_backbone is not None:
+                occ_bev = self.occ_bev_encoder_backbone(x)
+            else:
+                occ_bev = det_bev
+                
+            if self.seg_bev_encoder_backbone is not None:
+                seg_bev = self.seg_bev_encoder_backbone(x)
+            elif self.detection_backbone:
+                seg_bev = occ_bev
+            else:
+                seg_bev = det_bev
+            
+            det_bev = self.img_bev_encoder_neck(det_bev)
+            
+            if self.occ_bev_encoder_neck is not None:
+                occ_bev = self.occ_bev_encoder_neck(occ_bev)
+            else:
+                occ_bev = det_bev
+                
+            if self.seg_bev_encoder_neck is not None:
+                seg_bev = self.seg_bev_encoder_neck(seg_bev)
+            elif self.detection_neck or self.detection_backbone:
+                seg_bev = occ_bev
+            else:
+                seg_bev = det_bev
+
         if type(det_bev) in [list, tuple]:
             det_bev = det_bev[0]
         if type(occ_bev) in [list, tuple]:
