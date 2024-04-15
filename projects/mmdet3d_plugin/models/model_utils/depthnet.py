@@ -416,7 +416,7 @@ class DepthNet(nn.Module):
             # 3*res blocks +ASPP/DCN + Conv(c_mid-->D)
             depth = self.depth_conv(depth)  # x: (B*N_views, C_mid, fH, fW) --> (B*N_views, D, fH, fW)
         if ea_lss:
-            return torch.cat([depth, context], dim=1), x
+            return torch.cat([depth, context], dim=1), depth
         else:
             return torch.cat([depth, context], dim=1)
 
