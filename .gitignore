@@ -31,4 +31,4 @@ test.sh
 test*.sh
 *.ipynb
 
-
+debug/
