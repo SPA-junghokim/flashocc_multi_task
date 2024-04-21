@@ -53,6 +53,8 @@ class RenderOCCHead2D(BaseModule):
                  cnn_head=False,
                  cnn_soft_plus=False,
                  render_loss_weight=None,
+                 lovasz_loss=False,
+                 no_seperate=False,
                  ):
         super(RenderOCCHead2D, self).__init__()
         self.in_dim = in_dim
@@ -141,29 +143,40 @@ class RenderOCCHead2D(BaseModule):
                         nn.ReLU(),
                     )
         else:
-            if last_no_softplus:
-                self.density_mlp = nn.Sequential(
-                    nn.Linear(self.out_dim, self.out_dim * 2),
-                    nn.Softplus(),
-                    nn.Linear(self.out_dim * 2, 2 * Dz),
-                )
+            if no_seperate:
+                self.mlp_head = nn.Sequential(
+                        nn.Linear(self.out_dim, self.out_dim * 2),
+                        nn.Softplus(),
+                        nn.Linear(self.out_dim * 2, (num_classes +1) * Dz),
+                    )
             else:
-                self.density_mlp = nn.Sequential(
+                if last_no_softplus:
+                    self.density_mlp = nn.Sequential(
+                        nn.Linear(self.out_dim, self.out_dim * 2),
+                        nn.Softplus(),
+                        nn.Linear(self.out_dim * 2, 2 * Dz),
+                    )
+                else:
+                    self.density_mlp = nn.Sequential(
+                        nn.Linear(self.out_dim, self.out_dim * 2),
+                        nn.Softplus(),
+                        nn.Linear(self.out_dim * 2, 2 * Dz),
+                        nn.Softplus(),
+                    )
+                self.semantic_mlp = nn.Sequential(
                     nn.Linear(self.out_dim, self.out_dim * 2),
                     nn.Softplus(),
-                    nn.Linear(self.out_dim * 2, 2 * Dz),
-                    nn.Softplus(),
+                    nn.Linear(self.out_dim * 2, (num_classes - 1) * Dz),
                 )
-            self.semantic_mlp = nn.Sequential(
-                nn.Linear(self.out_dim, self.out_dim * 2),
-                nn.Softplus(),
-                nn.Linear(self.out_dim * 2, (num_classes - 1) * Dz),
-            )
         
+        self.no_seperate = no_seperate
         if nerf_head is not None:
             self.nerf_head = build_head(nerf_head)
         else:
             self.nerf_head = None
+        self.lovasz_loss = lovasz_loss
+        if self.lovasz_loss:
+            self.lovasz_softmax_loss = lovasz_softmax
         
     def forward(self, img_feats):
         """
@@ -182,14 +195,27 @@ class RenderOCCHead2D(BaseModule):
             density_prob = self.density_mlp(occ_pred).permute(0, 3, 2, 1)
             semantic = self.semantic_mlp(occ_pred).permute(0, 3, 2, 1)
 
+            bs, Dx, Dy = semantic.shape[:3]
+            density_prob = density_prob.view(bs, Dx, Dy, self.Dz, 2)
+            semantic = semantic.view(bs, Dx, Dy, self.Dz, self.num_classes-1)
+
         else:
             occ_pred = self.final_conv(img_feats).permute(0, 3, 2, 1)
-            density_prob = self.density_mlp(occ_pred)
-            semantic = self.semantic_mlp(occ_pred)
-        
-        bs, Dx, Dy = semantic.shape[:3]
-        density_prob = density_prob.view(bs, Dx, Dy, self.Dz, 2)
-        semantic = semantic.view(bs, Dx, Dy, self.Dz, self.num_classes-1)
+            if self.no_seperate:
+                occ_pred_out = self.mlp_head(occ_pred)
+                
+                bs, Dx, Dy = occ_pred_out.shape[:3]
+                occ_pred_out = occ_pred_out.view(bs, Dx, Dy, self.Dz, self.num_classes+1).contiguous()
+                
+                density_prob = occ_pred_out[..., -2:]
+                semantic = occ_pred_out[..., :-2]
+            else:
+                density_prob = self.density_mlp(occ_pred)
+                semantic = self.semantic_mlp(occ_pred)
+                
+                bs, Dx, Dy = semantic.shape[:3]
+                density_prob = density_prob.view(bs, Dx, Dy, self.Dz, 2)
+                semantic = semantic.view(bs, Dx, Dy, self.Dz, self.num_classes-1)
 
         return [density_prob, semantic]
 
@@ -234,6 +260,13 @@ class RenderOCCHead2D(BaseModule):
             loss_occ = self.loss_3d(voxel_semantics, mask_camera, density_prob, semantic)
             for k,v in loss_occ.items():
                 loss_occ[k] = self.loss_weight * v
+                
+            if self.lovasz_loss:
+                voxel_semantics_no_empty = voxel_semantics.clone()
+                voxel_semantics_no_empty[voxel_semantics == 17] = 255
+                lovasz_softmax_loss = self.lovasz_softmax_loss(F.softmax(semantic.permute(0,4,1,2,3), dim=1), voxel_semantics_no_empty, ignore=255)
+                loss['lovasz_softmax_loss'] = lovasz_softmax_loss * self.loss_weight
+                
             loss.update(loss_occ)
         if self.nerf_head:  # 2D rendering loss
             loss_rendering = self.nerf_head(density, semantic, rays=kwargs['rays'], bda=kwargs['bda'])
