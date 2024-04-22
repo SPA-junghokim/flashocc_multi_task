@@ -39,7 +39,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
                  frustum_depth_detach=False,
                  frustum_depth_residual=False,
                  pooling_head = False,
-                 time_check=False,
+                 time_check=True,
                  **kwargs):
         super(BEVDepth4D_MTL, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
                                              img_bev_encoder_neck=img_bev_encoder_neck,**kwargs)
