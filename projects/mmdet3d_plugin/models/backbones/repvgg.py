@@ -10,6 +10,8 @@ import copy
 from .se_block import SEBlock
 import torch.utils.checkpoint as checkpoint
 from mmdet3d.models import BACKBONES
+import logging
+from mmcv.cnn.utils import constant_init, kaiming_init
 
 def conv_bn(in_channels, out_channels, kernel_size, stride, padding, groups=1):
     result = nn.Sequential()
@@ -157,7 +159,9 @@ class RepVGG(nn.Module):
                  deploy=False,
                  use_se=False,
                  use_checkpoint=False,
-                 out_indices=[0,1,2,3]):
+                 out_indices=[0,1,2,3],
+                 pretrained=None,
+                 ):
         super(RepVGG, self).__init__()
         assert len(width_multiplier) == 4
         self.deploy = deploy
@@ -175,6 +179,7 @@ class RepVGG(nn.Module):
         self.stage4 = self._make_stage(int(512 * width_multiplier[3]), num_blocks[3], stride=2)
 
         self.out_indices = out_indices
+        self.pretrained = pretrained
         
     def _make_stage(self, planes, num_blocks, stride):
         strides = [stride] + [1]*(num_blocks-1)
@@ -187,6 +192,21 @@ class RepVGG(nn.Module):
             self.cur_layer_idx += 1
         return nn.ModuleList(blocks)
 
+    def init_weights(self, pretrained=None):
+
+        if isinstance(self.pretrained, str):
+            logger = logging.getLogger()
+            from mmcv.runner import load_checkpoint
+            load_checkpoint(self, self.pretrained, strict=False, logger=logger)
+        elif self.pretrained is None:
+            for m in self.modules():
+                if isinstance(m, nn.Conv2d):
+                    kaiming_init(m)
+                elif isinstance(m, nn.BatchNorm2d):
+                    constant_init(m, 1)
+        else:
+            raise TypeError('pretrained must be a str or None')
+        
     def forward(self, x):
         feats = []
         out = self.stage0(x)

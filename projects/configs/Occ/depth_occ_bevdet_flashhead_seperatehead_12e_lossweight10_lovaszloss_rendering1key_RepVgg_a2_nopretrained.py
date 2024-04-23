@@ -61,7 +61,6 @@ model = dict(
         # style='pytorch',
         # pretrained='torchvision://resnet50',
         type='RepVGG',
-        pretrained='ckpts/RepVGG-A2-train.pth',
         num_blocks=[2, 4, 14, 1], 
         # width_multiplier=[2.,2.,4.,4.], 
         width_multiplier=[1.5, 1.5, 1.5, 2.75], 
