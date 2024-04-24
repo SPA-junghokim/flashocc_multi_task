@@ -426,7 +426,6 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         return bbox_out, occ_out, voxel_semantics, mask_lidar, mask_camera, seg_out, gt_seg_mask
 
     def simple_test_occ(self, occ_bev_feats, occ_vox_feats, img_metas=None, depth=None, img_inputs=None):
-        breakpoint()
         B = occ_bev_feats[0].shape[0]
         img_metas_occ = [{"pc_range": self.pc_range, "occ_size":self.grid_size} for i in range(B)]
         
