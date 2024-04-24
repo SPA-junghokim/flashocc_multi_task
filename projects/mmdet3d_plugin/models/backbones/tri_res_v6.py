@@ -16,38 +16,30 @@ class CustomTriResV6(nn.Module):
             img_bev_encoder_backbone,
             img_bev_encoder_neck,
             grid_config,
-            num_planes=3,
-            out_enc=True):
+            num_planes=3):
         super(CustomTriResV6, self).__init__()
         self.create_grid_infos(**grid_config)
         self.num_planes = num_planes
         self.channels = img_bev_encoder_backbone['numC_input']
         
         self.encoder_backbones = nn.ModuleList()
-        self.encoder_necks = nn.ModuleList()
         self.enc_linear = nn.ModuleList()
-        self.dec_linear = nn.ModuleList()
         for i in range(num_planes):
             self.enc_linear.append(nn.Sequential(
                 nn.Conv2d(self.channels * int(self.grid_size[-i-1]), self.channels, kernel_size=1),
                 nn.BatchNorm2d(self.channels),
                 nn.ReLU()))
-            self.dec_linear.append(nn.Sequential(
-                nn.Conv3d(self.channels, self.channels // 2 , kernel_size=1),
-                nn.BatchNorm3d(self.channels // 2),
-                nn.ReLU(),
-                nn.Conv3d(self.channels // 2, 1, kernel_size=1)))
             self.encoder_backbones.append(
                 builder.build_backbone(img_bev_encoder_backbone))
-            self.encoder_necks.append(
-                builder.build_neck(img_bev_encoder_neck))
-        self.out = out_enc
-        if out_enc:
-            self.out_enc = nn.Sequential(
-                nn.Conv3d(self.channels * 3, self.channels, kernel_size=1),
-                nn.BatchNorm3d(self.channels),
-                nn.ReLU()
-            )
+        
+        self.encoder_neck = builder.build_neck(img_bev_encoder_neck)
+        self.up = nn.Upsample(
+            scale_factor=2, mode='trilinear', align_corners=True)
+        self.out_enc = nn.Sequential(
+            nn.Conv3d(self.channels, self.channels, kernel_size=1),
+            nn.BatchNorm3d(self.channels),
+            nn.ReLU()
+        )
         
     def forward(self, x):
         """
@@ -63,23 +55,30 @@ class CustomTriResV6(nn.Module):
         B, C, Z, H, W = x.shape
         
         feats = []
-        for lid, (enc, dec, backbone, neck) in enumerate(zip(self.enc_linear,
-                                                        self.dec_linear,
-                                                        self.encoder_backbones, 
-                                                        self.encoder_necks)):
-            res = x.clone()
+        res = x.clone()
+        for lid, (enc, backbone) in enumerate(zip(self.enc_linear,
+                                                  self.encoder_backbones)):
             feat = x.reshape(x.shape[0], -1, *x.shape[3:])
             feat = enc(feat)
-            feat = neck(backbone(feat))
-            feat = dec(res).sigmoid() * feat.unsqueeze(2)
-            feats.append(feat)
+            if lid==0:
+                feat_1, feat_2, feat_3 = backbone(feat)
+                feat_1 = feat_1.unsqueeze(2)
+                feat_2 = feat_2.unsqueeze(2)
+                feat_3 = feat_3.unsqueeze(2)
+            elif lid==1:
+                feat = backbone(feat)
+                feat_1 = feat_1 + feat[0].unsqueeze(2).permute(0,1,4,2,3)
+                feat_2 = feat_2 + feat[1].unsqueeze(2).permute(0,1,4,2,3)
+                feat_3 = feat_3 + feat[2].unsqueeze(2).permute(0,1,4,2,3)
+            else:
+                feat = backbone(feat)
+                feat_1 = feat_1 + feat[0].unsqueeze(2).permute(0,1,3,4,2)
+                feat_2 = feat_2 + feat[1].unsqueeze(2).permute(0,1,3,4,2)
+                feat_3 = feat_3 + feat[2].unsqueeze(2).permute(0,1,3,4,2)
             x = x.permute(0,1,3,4,2)
 
-        feats[1] = feats[1].permute(0,1,4,2,3)
-        feats[2] = feats[2].permute(0,1,3,4,2)
-        out = torch.cat(feats, dim=1)
-        if self.out:
-            out = self.out_enc(out)
+        out = self.encoder_neck([feat_1,feat_2,feat_3])
+        out = self.out_enc(self.up(out))
         
         return out
     

@@ -97,10 +97,9 @@ model = dict(
             type='CustomResNet',
             numC_input=numC_Trans,
             num_channels=[numC_Trans, numC_Trans*2, numC_Trans*4]),
-        img_bev_encoder_neck=dict(
-            type='FPN_LSS',
-            in_channels=numC_Trans*5,
-            out_channels=numC_Trans),
+        img_bev_encoder_neck=dict(type='LSSFPN3D',
+                              in_channels=numC_Trans*7,
+                              out_channels=numC_Trans),
         grid_config=grid_config,
     ),
     occ_head=dict(

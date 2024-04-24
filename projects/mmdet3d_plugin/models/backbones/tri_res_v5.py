@@ -62,6 +62,7 @@ class CustomTriResV5(nn.Module):
         B, C, Z, H, W = x.shape
         
         feats = []
+        identity = x.clone()
         for lid, (enc, dec, backbone, neck) in enumerate(zip(self.enc_linear,
                                                         self.dec_linear,
                                                         self.encoder_backbones, 
@@ -70,7 +71,7 @@ class CustomTriResV5(nn.Module):
             feat = x.reshape(x.shape[0], -1, *x.shape[3:])
             feat = enc(feat)
             feat = neck(backbone(feat))
-            feat = dec(feat).reshape(*res.shape) + res
+            feat = dec(feat).reshape(*res.shape)
             feats.append(feat)
             x = x.permute(0,1,3,4,2)
 
@@ -79,7 +80,7 @@ class CustomTriResV5(nn.Module):
         out = torch.cat(feats, dim=1)
         if self.out:
             out = self.out_enc(out)
-        
+        out = out + identity
         return out
     
     def create_grid_infos(self, x, y, z, **kwargs):
