@@ -668,7 +668,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         mask_pred = torch.einsum('bqc,bcxyz->bqxyz', mask_embed, mask_feature)
 
         ''' 对于一些样本数量较少的类别来说，经过 trilinear 插值 + 0.5 阈值，正样本直接消失 '''
-        
+        breakpoint()
         if self.num_transformer_decoder_layers != 0:
             if self.pooling_attn_mask:
                 # however, using max-pooling can save more positive samples, which is quite important for rare classes
@@ -936,23 +936,24 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         cls_pred_list.append(cls_pred)
         mask_pred_list.append(mask_pred)
         
-        B, C, W, H, Z = mask_features.shape
-        attn_mask_target_size = multi_scale_memorys[0].shape[-3:]
-        
-        if self.pooling_attn_mask:
-            attn_mask = F.adaptive_max_pool3d(mask_pred.float(), attn_mask_target_size)
-        else:
-            attn_mask = F.interpolate(mask_pred, attn_mask_target_size, mode='trilinear', align_corners=self.align_corners)
-        attn_mask = attn_mask.flatten(2).detach() # detach the gradients back to mask_pred
-        attn_mask = attn_mask.sigmoid() < 0.5
-        attn_mask = attn_mask.unsqueeze(1).repeat((1, self.num_heads, 1, 1)).flatten(0, 1)
-        if self.dn_enable and self.training:
-            attn_mask=attn_mask.view([batch_size,self.num_heads,-1,attn_mask.shape[-1]])
-            if self.noise_type == 'gt' or self.noise_type == 'point':
-                attn_mask[:,:,:dn_pad_size]=padding_mask
+        if self.num_transformer_decoder_layers != 0:
+            B, C, W, H, Z = mask_features.shape
+            attn_mask_target_size = multi_scale_memorys[0].shape[-3:]
+            
+            if self.pooling_attn_mask:
+                attn_mask = F.adaptive_max_pool3d(mask_pred.float(), attn_mask_target_size)
             else:
-                attn_mask[:,:,:dn_pad_size]=padding_mask_3level[0]
-            attn_mask=attn_mask.flatten(0,1)
+                attn_mask = F.interpolate(mask_pred, attn_mask_target_size, mode='trilinear', align_corners=self.align_corners)
+            attn_mask = attn_mask.flatten(2).detach() # detach the gradients back to mask_pred
+            attn_mask = attn_mask.sigmoid() < 0.5
+            attn_mask = attn_mask.unsqueeze(1).repeat((1, self.num_heads, 1, 1)).flatten(0, 1)
+            if self.dn_enable and self.training:
+                attn_mask=attn_mask.view([batch_size,self.num_heads,-1,attn_mask.shape[-1]])
+                if self.noise_type == 'gt' or self.noise_type == 'point':
+                    attn_mask[:,:,:dn_pad_size]=padding_mask
+                else:
+                    attn_mask[:,:,:dn_pad_size]=padding_mask_3level[0]
+                attn_mask=attn_mask.flatten(0,1)
             
 
         for i in range(self.num_transformer_decoder_layers):
