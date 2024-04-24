@@ -7,5 +7,6 @@ from .tri_res_v3 import CustomTriResV3
 from .tri_res_v4 import CustomTriResV4
 from .tri_res_v5 import CustomTriResV5
 from .tri_res_v6 import CustomTriResV6
+from .repvgg import RepVGG
 
-__all__ = ['ResNet', 'CustomResNet', 'SwinTransformer']
+__all__ = ['ResNet', 'CustomResNet', 'SwinTransformer', 'RepVGG']
