@@ -168,3 +168,115 @@ class LSSFPN3D(nn.Module):
 
 
 
+
+@NECKS.register_module()
+class Custom_FPN_LSS(nn.Module):
+    def __init__(self,
+                 catconv_in_channels1,
+                 catconv_in_channels2,
+                 outconv_in_channels1,
+                 outconv_in_channels2,
+                 outconv_in_channels3,
+                 out_channels,
+                 scale_factor=2,
+                 input_feature_index=(0,1,2),
+                 norm_cfg=dict(type='BN'),
+                 extra_upsample=2,
+                 lateral=None,
+                 use_input_conv=False,
+                 only_largest_voxel_feature_used=False,
+                 ):
+        super(Custom_FPN_LSS, self).__init__()
+        self.input_feature_index = input_feature_index
+        self.extra_upsample = extra_upsample is not None
+        self.out_channels = out_channels
+        self.only_largest_voxel_feature_used = only_largest_voxel_feature_used
+        
+        # 用于上采样high-level的feature map
+        self.up = nn.Upsample(
+            scale_factor=scale_factor, mode='bilinear', align_corners=True)
+
+        channels_factor = 2 if self.extra_upsample else 1
+        
+        self.cat_conv1 = nn.Sequential(
+            nn.Conv2d(catconv_in_channels1, out_channels * channels_factor, kernel_size=3, padding=1, bias=False),
+            build_norm_layer(norm_cfg, out_channels * channels_factor)[1],
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels * channels_factor, out_channels * channels_factor, kernel_size=3,
+                      padding=1, bias=False),
+            build_norm_layer(norm_cfg, out_channels * channels_factor)[1],
+            nn.ReLU(inplace=True),
+        )
+        
+        self.cat_conv2 = nn.Sequential(
+            nn.Conv2d(catconv_in_channels2, out_channels * channels_factor, kernel_size=3, padding=1, bias=False),
+            build_norm_layer(norm_cfg, out_channels * channels_factor)[1],
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels * channels_factor, out_channels * channels_factor, kernel_size=3,
+                      padding=1, bias=False),
+            build_norm_layer(norm_cfg, out_channels * channels_factor)[1],
+            nn.ReLU(inplace=True),
+        )
+        
+        if self.only_largest_voxel_feature_used == False:
+            self.out_conv1 = nn.Sequential(
+                nn.Conv2d(outconv_in_channels1, out_channels, kernel_size=3, padding=1, bias=False),
+                build_norm_layer(norm_cfg, out_channels)[1],
+                nn.ReLU(inplace=True),
+                nn.Conv2d(out_channels, out_channels, kernel_size=1, padding=0)
+            )
+            self.out_conv2 = nn.Sequential(
+                nn.Conv2d(outconv_in_channels2, out_channels, kernel_size=3, padding=1, bias=False),
+                build_norm_layer(norm_cfg, out_channels)[1],
+                nn.ReLU(inplace=True),
+                nn.Conv2d(out_channels, out_channels, kernel_size=1, padding=0)
+            )
+            self.out_conv3 = nn.Sequential(
+                nn.Conv2d(outconv_in_channels3, out_channels, kernel_size=3, padding=1, bias=False),
+                build_norm_layer(norm_cfg, out_channels)[1],
+                nn.ReLU(inplace=True),
+                nn.Conv2d(out_channels, out_channels, kernel_size=1, padding=0)
+            )
+
+        if self.extra_upsample:
+            self.up2 = nn.Sequential(
+                nn.Upsample(scale_factor=extra_upsample, mode='bilinear', align_corners=True),
+                nn.Conv2d(out_channels * channels_factor, out_channels, kernel_size=3, padding=1, bias=False),
+                build_norm_layer(norm_cfg, out_channels)[1],
+                nn.ReLU(inplace=True),
+                nn.Conv2d(out_channels, out_channels, kernel_size=1, padding=0)
+            )
+
+
+    def forward(self, feats):
+        """
+        Args:
+            feats: List[Tensor,] multi-level features
+                List[(B, C1, H, W), (B, C2, H/2, W/2), (B, C3, H/4, W/4)]
+        Returns:
+            x: (B, C_out, 2*H, 2*W)
+        """
+        # x3 = [2, 128, 100, 100]
+        # x2 = [2, 256, 50, 50]
+        # x1 = [2, 512, 25, 25]
+        x3, x2, x1 = feats[self.input_feature_index[0]], feats[self.input_feature_index[1]], feats[self.input_feature_index[2]]
+        
+        x1_up = self.up(x1) # [2, 512, 50, 50]
+        x2_cat = torch.cat([x2, x1_up], dim=1) # [2, 768, 50, 50]
+        x2_cat = self.cat_conv1(x2_cat) # [2, 96, 50, 50]
+        
+        x2_up = self.up(x2_cat) # [2, 96, 100, 100]
+        x3_cat = torch.cat([x3, x2_up], dim=1) # [2, 224, 100, 100]
+        x3_cat = self.cat_conv2(x3_cat) # [2, 96, 100, 100]
+        
+        if self.extra_upsample:
+            x4_out = self.up2(x3_cat) # [2, 48, 200, 200]
+        if self.only_largest_voxel_feature_used == False:
+            x1_out = self.out_conv1(x1) # [2, 48, 25, 25]
+            x2_out = self.out_conv2(x2_cat) # [2, 48, 50, 50]
+            x3_out = self.out_conv3(x3_cat) # [2, 48, 100, 100])
+            return [x4_out, x3_out, x2_out, x1_out]
+        else:
+            return [x4_out, x4_out, x4_out, x4_out]
+                
+        

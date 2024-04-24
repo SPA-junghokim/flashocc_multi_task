@@ -1,3 +1,13 @@
+# train.sh command 
+# CONFIG=depth_occ_bevdet_flashhead_seperatehead_12e_lossweight10_lovaszloss_rendering1key_RepVgg_b1
+# CONFIG_PATH=Occ
+
+# ./tools/dist_train.sh projects/configs/$CONFIG_PATH/$CONFIG.py 4 --work-dir ./work_dirs/$CONFIG_PATH/$CONFIG
+# python tools/convert_reparam.py projects/configs/$CONFIG_PATH/$CONFIG.py --resume-from ./work_dirs/$CONFIG_PATH/$CONFIG/epoch_12_ema.pth
+# PORT=28391 CUDA_VISIBLE_DEVICES=0 tools/dist_test_plus.sh projects/configs/$CONFIG_PATH/$CONFIG.py ./work_dirs/$CONFIG_PATH/$CONFIG/epoch_12_ema_reparam.pth 1 --eval bbox --reparam  >> ./work_dirs/$CONFIG_PATH/$CONFIG/result12ema_reparam.txt
+# python send_result_mail.py ./work_dirs/$CONFIG_PATH/$CONFIG/result12ema_reparam.txt 11
+
+
 _base_ = ['../../../mmdetection3d/configs/_base_/datasets/nus-3d.py',
           '../../../mmdetection3d/configs/_base_/default_runtime.py']
 

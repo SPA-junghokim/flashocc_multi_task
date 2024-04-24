@@ -23,6 +23,29 @@ def lovasz_grad(gt_sorted):
     return jaccard
 
 
+def lovasz_softmax_occ(probas, labels, classes='present', per_image=False, ignore=255, flattened = False):
+    """
+    Multi-class Lovasz-Softmax loss
+      probas: [B, C, H, W] Variable, class probabilities at each prediction (between 0 and 1).
+              Interpreted as binary (sigmoid) output with outputs of size [B, H, W].
+      labels: [B, H, W] Tensor, ground truth labels (between 0 and C - 1)
+      classes: 'all' for all, 'present' for classes present in labels, or a list of classes to average.
+      per_image: compute the loss per image instead of per batch
+      ignore: void class labels
+
+      probas = [2, 18, 200, 200, 16]
+      labels = [2, 200, 200, 16]
+    """
+    if flattened:
+        loss = lovasz_softmax_flat(probas, labels, classes=classes)
+    else:
+        if per_image:
+            loss = mean(lovasz_softmax_flat(*flatten_probas(prob.unsqueeze(0), lab.unsqueeze(0), ignore), classes=classes)
+                            for prob, lab in zip(probas, labels))
+        else:
+            loss = lovasz_softmax_flat(*flatten_probas(probas, labels, ignore), classes=classes)
+    return [loss]
+
 def lovasz_softmax(probas, labels, classes='present', per_image=False, ignore=None):
     """
     Multi-class Lovasz-Softmax loss
