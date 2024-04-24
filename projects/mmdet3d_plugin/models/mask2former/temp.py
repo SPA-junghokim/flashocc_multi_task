@@ -23,7 +23,7 @@ import pdb
 
 # Mask2former for 3D Occupancy Segmentation on nuScenes dataset
 @HEADS.register_module()
-class Mask2FormerNuscOccHead(MaskFormerHead):
+class Mask2FormerNuscOccHead_from_BEV(MaskFormerHead):
     """Implements the Mask2Former head.
 
     See `Masked-attention Mask Transformer for Universal Image
@@ -79,27 +79,34 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
                  test_cfg=None,
                  init_cfg=None,
                  loss_flatten = False,
-                 loss_lovasz=True,
+                 loss_lovasz=False,
                  lovasz_loss_weight = 1,
-                 lovasz_flatten=True,
-                 consider_visible_mask = True,
+                 lovasz_flatten=False,
+                 with_loss_dice=True,
+                 consider_visible_mask = False,
                  learned_pos_embed = False,
                  scalar=5,
                  dn_label_noise_ratio=0.2,
                  dn_enable=False,
                  dn_query_init_type='class',
-                 pooling_attn_mask_dn = True,
+                 pooling_attn_mask_dn = False,
+                 boolflip=False,
                  noise_type='gt',
                  dn_mask_noise_scale = 0.2,
                  mask_size=[200,200],
+                 no_positional_embedding=False,
+                 from_bev_query=False,
+                 from_bev_mask=False,
+                 from_bev_mask_forward_head_once_more=False,
                  point_sample_for_dn= False,
+                 vox_also_dn_mask=False,
                  **kwargs):
         super(AnchorFreeHead, self).__init__(init_cfg)
-        
         self.num_occupancy_classes = num_occupancy_classes
         self.num_classes = self.num_occupancy_classes
         self.num_queries = num_queries
         self.point_cloud_range = point_cloud_range
+        self.from_bev_query = from_bev_query
         
         ''' Transformer Decoder Related '''
         # number of multi-scale features for masked attention
@@ -123,10 +130,10 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
                 self.decoder_input_projs.append(nn.Identity())
                 
         self.decoder_positional_encoding = build_positional_encoding(positional_encoding)
-        if dn_enable == False and self.num_transformer_feat_level != 0:
+        if dn_enable == False and no_positional_embedding == False and self.num_transformer_feat_level != 0:
             self.query_embed = nn.Embedding(self.num_queries, feat_channels)
-            
-        self.query_feat = nn.Embedding(self.num_queries, feat_channels)
+        if self.from_bev_query == False:
+            self.query_feat = nn.Embedding(self.num_queries, feat_channels)
         # from low resolution to high resolution
         if self.num_transformer_feat_level != 0:
             self.level_embed = nn.Embedding(self.num_transformer_feat_level, feat_channels)
@@ -160,13 +167,15 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         self.loss_flatten = loss_flatten
         self.voxel_coord = None
         self.loss_lovasz = loss_lovasz
-        self.loss_dice = build_loss(loss_dice)
-        
         if self.loss_lovasz:
             self.loss_lovasz = lovasz_softmax_occ
             self.lovasz_loss_weight = lovasz_loss_weight
             self.lovasz_flatten = lovasz_flatten
-            
+            self.with_loss_dice = with_loss_dice
+            if self.with_loss_dice:
+                self.loss_dice = build_loss(loss_dice)
+        else:
+            self.loss_dice = build_loss(loss_dice)
         self.consider_visible_mask = consider_visible_mask
         
         self.learned_pos_embed = learned_pos_embed
@@ -178,6 +187,8 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
                     nn.Conv3d(out_channels, out_channels,1),
                 )
             
+        self.from_bev_mask=from_bev_mask
+        self.from_bev_mask_forward_head_once_more = from_bev_mask_forward_head_once_more
         
         # dn
         self.scalar=scalar
@@ -186,13 +197,15 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         self.out_channels = out_channels
         self.feat_channels = feat_channels
         self.dn_query_init_type = dn_query_init_type
-        if self.dn_query_init_type == 'class' and self.dn_enable:
+        if self.dn_query_init_type == 'class' and self.dn_enable and self.from_bev_query == False:
             self.label_enc = nn.Embedding(self.num_classes, self.feat_channels)
         self.pooling_attn_mask_dn = pooling_attn_mask_dn
         self.noise_type = noise_type
         self.dn_mask_noise_scale = dn_mask_noise_scale
         self.mask_size = mask_size
+        self.no_positional_embedding = no_positional_embedding
         self.point_sample_for_dn = point_sample_for_dn
+        self.vox_also_dn_mask = vox_also_dn_mask
         
     def init_weights(self):
         for m in self.decoder_input_projs:
@@ -394,17 +407,21 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         # loss from the last decoder layer
         loss_dict['loss_cls'] = losses_cls[-1]
         loss_dict['loss_mask'] = losses_mask[-1]
-        loss_dict['loss_dice'] = losses_dice[-1]
         if self.loss_lovasz:
             loss_dict['loss_loavsz'] = losses_loavsz[-1]
+            if self.with_loss_dice: loss_dict['loss_dice'] = losses_dice[-1]
+        else: loss_dict['loss_dice'] = losses_dice[-1]
 
         num_dec_layer = 0
         for loss_cls_i, loss_mask_i, losses_loavsz_i, loss_dice_i in zip(losses_cls[:-1], losses_mask[:-1], losses_loavsz[:-1], losses_dice[:-1]):
             loss_dict[f'd{num_dec_layer}.loss_cls'] = loss_cls_i
             loss_dict[f'd{num_dec_layer}.loss_mask'] = loss_mask_i
-            loss_dict[f'd{num_dec_layer}.loss_dice'] = loss_dice_i           
             if self.loss_lovasz:
                 loss_dict[f'd{num_dec_layer}.loss_loavsz'] = losses_loavsz_i 
+                if self.with_loss_dice:
+                    loss_dict[f'd{num_dec_layer}.loss_dice'] = loss_dice_i              
+            else:
+                loss_dict[f'd{num_dec_layer}.loss_dice'] = loss_dice_i        
             num_dec_layer += 1
             
         if self.dn_enable and self.training:
@@ -421,16 +438,18 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             
             loss_dict['loss_cls_dn'] = losses_cls_dn[-1]
             loss_dict['loss_mask_dn'] = losses_mask_dn[-1]
-            loss_dict['loss_dice_dn'] = losses_dice_dn[-1]
             if self.loss_lovasz:
                 loss_dict['loss_loavsz_dn'] = losses_loavsz_dn[-1]
+                if self.with_loss_dice: loss_dict['loss_dice_dn'] = losses_dice_dn[-1]
+            else: loss_dict['loss_dice_dn'] = losses_dice_dn[-1]
             num_dec_layer = 0
             for idx in range(len(losses_cls_dn[:-1])):
                 loss_dict[f'd{num_dec_layer}.loss_cls_dn'] = losses_cls_dn[:-1][idx]
                 loss_dict[f'd{num_dec_layer}.loss_mask_dn'] = losses_mask_dn[:-1][idx]
-                loss_dict[f'd{num_dec_layer}.loss_dice_dn'] = losses_dice_dn[:-1][idx]
                 if self.loss_lovasz:
                     loss_dict[f'd{num_dec_layer}.loss_loavsz_dn'] = losses_loavsz_dn[:-1][idx]
+                    if self.with_loss_dice: loss_dict[f'd{num_dec_layer}.loss_dice_dn'] = losses_dice_dn[:-1][idx]
+                else: loss_dict[f'd{num_dec_layer}.loss_dice_dn'] = losses_dice_dn[:-1][idx]
                 num_dec_layer += 1
                 
         return loss_dict
@@ -456,7 +475,8 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             loss_mask = mask_preds.sum()
             loss_lovasz = mask_preds.sum()
             loss_dice = mask_preds.sum()
-            if self.loss_lovasz == False: loss_lovasz=None
+            if self.loss_lovasz and self.with_loss_dice == False: loss_dice=None
+            else: loss_lovasz=None
             return loss_cls, loss_mask, loss_lovasz, loss_dice
 
         if self.point_sample_for_dn:
@@ -493,7 +513,6 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         # the weighted version
         num_total_mask_weights = reduce_mean(mask_weights.sum())        
                 
-        loss_dice = self.loss_dice(mask_point_preds, mask_point_targets, weight=mask_weights, avg_factor=num_total_mask_weights)
         if self.loss_lovasz:
             batch_num_classes=len(gt_labels_list)/self.scalar
             loss_lovasz = 0
@@ -518,12 +537,33 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
                         pred = torch.cat((pred,prepared_pred),0)
                         flattened_gt_occ = torch.cat((flattened_gt_occ,batch_gt_class),0)
             loss_lovasz = self.loss_lovasz(pred, flattened_gt_occ, ignore=255, flattened = self.lovasz_flatten) * self.lovasz_loss_weight
+
+
+            # batch_num_classes=len(gt_labels_list)/self.scalar
+            # for b_i in range(batch_size):
+            #     for d_i in range(self.scalar):
+            #         breakpoint()
+            #         prepared_pred = torch.zeros((mask_point_targets.shape[1],18),device=torch.device('cuda'))
+            #         batch_gt_class = torch.argmax(mask_point_targets[:batch_num_classes,:].permute(1,0), axis = 1).long()
+            #         batch_mask_preds = mask_point_preds[:batch_num_classes,:].permute(1,0).sigmoid()
+
+            #         for idx, j in enumerate(gt_labels_list):
+            #             prepared_pred[:,j]=batch_mask_preds[:,idx]
+            #         batch_gt_class = gt_labels_list[batch_gt_class]
+            #         pred = prepared_pred
+            #         flattened_gt_occ = batch_gt_class
+            #         loss_lovasz += self.loss_lovasz(pred, flattened_gt_occ, ignore=255, flattened = self.lovasz_flatten) * self.lovasz_loss_weight 
+            if self.with_loss_dice:
+                loss_dice = self.loss_dice(mask_point_preds, mask_point_targets, weight=mask_weights, avg_factor=num_total_mask_weights)
+        else:
+            loss_dice = self.loss_dice(mask_point_preds, mask_point_targets, weight=mask_weights, avg_factor=num_total_mask_weights)
         
         mask_point_preds = mask_point_preds.reshape(-1)
         mask_point_targets = mask_point_targets.reshape(-1)
         loss_mask = self.loss_mask(mask_point_preds,mask_point_targets,avg_factor=num_total_mask_weights * self.num_points,)
         
-        if self.loss_lovasz == False: loss_lovasz=None
+        if self.loss_lovasz and self.with_loss_dice == False: loss_dice=None
+        elif self.loss_lovasz == False: loss_lovasz=None
         return loss_cls, loss_mask, loss_lovasz, loss_dice
 
 
@@ -577,7 +617,8 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             loss_mask = mask_preds.sum()
             loss_lovasz = mask_preds.sum()
             loss_dice = mask_preds.sum()
-            if self.loss_lovasz == False: loss_lovasz=None
+            if self.loss_lovasz and self.with_loss_dice == False: loss_dice=None
+            else: loss_lovasz=None
             return loss_cls, loss_mask, loss_lovasz, loss_dice, None
 
         ''' 
@@ -599,7 +640,6 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             mask_point_targets = point_sample_3d(mask_targets.unsqueeze(1).float(), point_coords, padding_mode=self.padding_mode).squeeze(1)
         num_total_mask_weights = reduce_mean(mask_weights.sum())
 
-        loss_dice = self.loss_dice(mask_point_preds, mask_point_targets, weight=mask_weights, avg_factor=num_total_mask_weights)
         if self.loss_lovasz:
             for i in range(len(gt_labels_list)):
                 if i == 0: start = 0
@@ -621,6 +661,10 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
                     flattened_gt_occ = torch.cat((flattened_gt_occ,batch_gt_class),0)
                     
             loss_lovasz = self.loss_lovasz(pred, flattened_gt_occ, ignore=255, flattened = self.lovasz_flatten) * self.lovasz_loss_weight
+            if self.with_loss_dice:
+                loss_dice = self.loss_dice(mask_point_preds, mask_point_targets, weight=mask_weights, avg_factor=num_total_mask_weights)
+        else:
+            loss_dice = self.loss_dice(mask_point_preds, mask_point_targets, weight=mask_weights, avg_factor=num_total_mask_weights)
         
         # mask loss
         mask_point_preds = mask_point_preds.reshape(-1)
@@ -633,7 +677,8 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         )
 
 
-        if self.loss_lovasz == False: loss_lovasz=None
+        if self.loss_lovasz and self.with_loss_dice == False: loss_dice=None
+        elif self.loss_lovasz == False: loss_lovasz=None
         return loss_cls, loss_mask, loss_lovasz, loss_dice, point_coords
 
 
@@ -668,7 +713,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         mask_pred = torch.einsum('bqc,bcxyz->bqxyz', mask_embed, mask_feature)
 
         ''' 对于一些样本数量较少的类别来说，经过 trilinear 插值 + 0.5 阈值，正样本直接消失 '''
-        breakpoint()
+        
         if self.num_transformer_decoder_layers != 0:
             if self.pooling_attn_mask:
                 # however, using max-pooling can save more positive samples, which is quite important for rare classes
@@ -701,10 +746,12 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             gt_occ,
             mask_camera,
             non_vis_semantic_voxel,
+            mask_query,
+            bev_attn_mask=None,
             **kwargs,
         ):
         gt_labels, gt_masks, gt_binaries = self.preprocess_gt(gt_occ, img_metas)
-        all_cls_scores, all_mask_preds, dn_args = self(voxel_feats, img_metas, targets=dict(gt_labels=gt_labels,
+        all_cls_scores, all_mask_preds, dn_args = self(voxel_feats, img_metas, mask_query, bev_attn_mask, targets=dict(gt_labels=gt_labels,
                                                                                    gt_masks=gt_masks,
                                                                                    gt_binaries= gt_binaries,))
 
@@ -778,12 +825,15 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         map_known_indices = torch.cat([map_known_indices + single_pad * i for i in range(self.scalar)]).long().cuda()
 
         # for i in range(bs):
-        if self.dn_query_init_type == 'class':
-            noised_known_features = self.label_enc(knwon_labels_expand)
+        if self.from_bev_query == False:
+            if self.dn_query_init_type == 'class':
+                noised_known_features = self.label_enc(knwon_labels_expand)
+            else:
+                noised_known_features = torch.zeros((knwon_labels_expand.shape[0], self.feat_channels))
+            padding[(known_bid, map_known_indices)] = noised_known_features
+            res = torch.cat([padding.transpose(0, 1), query_feat], dim=0)
         else:
-            noised_known_features = torch.zeros((knwon_labels_expand.shape[0], self.feat_channels))
-        padding[(known_bid, map_known_indices)] = noised_known_features
-        res = torch.cat([padding.transpose(0, 1), query_feat], dim=0)
+            res = query_feat
 
         padding_mask[(known_bid, map_known_indices)]= masks
         padding_mask=padding_mask.unsqueeze(1).repeat([1,self.num_heads,1,1])
@@ -849,6 +899,8 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
     def forward(self, 
             voxel_feats,
             img_metas,
+            mask_query,
+            bev_attn_mask=None,
             targets=None,
             **kwargs,
         ):
@@ -885,6 +937,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             if multi_scale_memorys[i].dim()==5:
                 multi_scale_memorys[i] = multi_scale_memorys[i].permute(0,1,3,2,4)
         
+        
         decoder_inputs = []
         decoder_positional_encodings = []
         size_list = []
@@ -908,9 +961,12 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             decoder_inputs.append(decoder_input)
             decoder_positional_encodings.append(decoder_positional_encoding)
         
-        query_feat = self.query_feat.weight.unsqueeze(1).repeat((1, batch_size, 1))
+        if self.from_bev_query:
+            query_feat = mask_query
+        else:
+            query_feat = self.query_feat.weight.unsqueeze(1).repeat((1, batch_size, 1))
 
-        if self.dn_enable == False and self.num_transformer_feat_level != 0:
+        if self.dn_enable == False and self.no_positional_embedding == False and self.num_transformer_feat_level != 0:
             query_embed = self.query_embed.weight.unsqueeze(1).repeat((1, batch_size, 1))
         else:
             query_embed = None
@@ -929,17 +985,15 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         cls_pred_list = []
         mask_pred_list = []
         
-    
-        cls_pred, mask_pred, attn_mask = self.forward_head(query_feat, 
-                    mask_features, multi_scale_memorys[0].shape[-3:])
-
-        cls_pred_list.append(cls_pred)
-        mask_pred_list.append(mask_pred)
         
-        if self.num_transformer_decoder_layers != 0:
+        if self.from_bev_mask and self.from_bev_mask_forward_head_once_more == False:
             B, C, W, H, Z = mask_features.shape
             attn_mask_target_size = multi_scale_memorys[0].shape[-3:]
-            
+            if bev_attn_mask[-1].dim() == 4:
+                mask_pred = bev_attn_mask[-1][:,:,:,:,None].repeat(1,1,1,1,Z)
+            else:
+                mask_pred = bev_attn_mask[-1]
+
             if self.pooling_attn_mask:
                 attn_mask = F.adaptive_max_pool3d(mask_pred.float(), attn_mask_target_size)
             else:
@@ -947,14 +1001,53 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             attn_mask = attn_mask.flatten(2).detach() # detach the gradients back to mask_pred
             attn_mask = attn_mask.sigmoid() < 0.5
             attn_mask = attn_mask.unsqueeze(1).repeat((1, self.num_heads, 1, 1)).flatten(0, 1)
-            if self.dn_enable and self.training:
-                attn_mask=attn_mask.view([batch_size,self.num_heads,-1,attn_mask.shape[-1]])
-                if self.noise_type == 'gt' or self.noise_type == 'point':
-                    attn_mask[:,:,:dn_pad_size]=padding_mask
+            if self.vox_also_dn_mask:
+                if self.dn_enable and self.training:
+                    attn_mask=attn_mask.view([batch_size,self.num_heads,-1,attn_mask.shape[-1]])
+                    if self.noise_type == 'gt' or self.noise_type == 'point':
+                        attn_mask[:,:,:dn_pad_size]=padding_mask
+                    else:
+                        attn_mask[:,:,:dn_pad_size]=padding_mask_3level[0]
+                    attn_mask=attn_mask.flatten(0,1)
+        else:
+            cls_pred, mask_pred, attn_mask = self.forward_head(query_feat, 
+                        mask_features, multi_scale_memorys[0].shape[-3:])
+    
+            cls_pred_list.append(cls_pred)
+            mask_pred_list.append(mask_pred)
+            if self.from_bev_mask_forward_head_once_more:
+                B, C, W, H, Z = mask_features.shape
+                attn_mask_target_size = multi_scale_memorys[0].shape[-3:]
+                if bev_attn_mask[-1].dim() == 4:
+                    mask_pred = bev_attn_mask[-1][:,:,:,:,None].repeat(1,1,1,1,Z)
                 else:
-                    attn_mask[:,:,:dn_pad_size]=padding_mask_3level[0]
-                attn_mask=attn_mask.flatten(0,1)
-            
+                    mask_pred = bev_attn_mask[-1]
+
+                if self.pooling_attn_mask:
+                    attn_mask = F.adaptive_max_pool3d(mask_pred.float(), attn_mask_target_size)
+                else:
+                    attn_mask = F.interpolate(mask_pred, attn_mask_target_size, mode='trilinear', align_corners=self.align_corners)
+                attn_mask = attn_mask.flatten(2).detach() # detach the gradients back to mask_pred
+                attn_mask = attn_mask.sigmoid() < 0.5
+                attn_mask = attn_mask.unsqueeze(1).repeat((1, self.num_heads, 1, 1)).flatten(0, 1)
+                if self.vox_also_dn_mask:
+                    if self.dn_enable and self.training:
+                        attn_mask=attn_mask.view([batch_size,self.num_heads,-1,attn_mask.shape[-1]])
+                        if self.noise_type == 'gt' or self.noise_type == 'point':
+                            attn_mask[:,:,:dn_pad_size]=padding_mask
+                        else:
+                            attn_mask[:,:,:dn_pad_size]=padding_mask_3level[0]
+                        attn_mask=attn_mask.flatten(0,1)
+                    
+            else:
+                if self.dn_enable and self.training:
+                    if self.num_transformer_decoder_layers != 0:
+                        attn_mask=attn_mask.view([batch_size,self.num_heads,-1,attn_mask.shape[-1]])
+                        if self.noise_type == 'gt' or self.noise_type == 'point':
+                            attn_mask[:,:,:dn_pad_size]=padding_mask
+                        else:
+                            attn_mask[:,:,:dn_pad_size]=padding_mask_3level[0]
+                        attn_mask=attn_mask.flatten(0,1)
 
         for i in range(self.num_transformer_decoder_layers):
             level_idx = i % self.num_transformer_feat_level
@@ -980,14 +1073,15 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             cls_pred_list.append(cls_pred)
             mask_pred_list.append(mask_pred)
             
-            if self.dn_enable and self.training:
-                if self.noise_type == 'gt' or self.noise_type == 'point':
-                    padding_mask = self.gen_mask_dn(targets, size_list[(i + 1) % self.num_transformer_decoder_layers], known_bid, map_known_indices)
-                else:
-                    padding_mask = padding_mask_3level[(i + 1) % self.num_transformer_decoder_layers]
-                attn_mask=attn_mask.view([batch_size,self.num_heads,-1,attn_mask.shape[-1]])
-                attn_mask[:,:,:dn_pad_size]=padding_mask
-                attn_mask=attn_mask.flatten(0,1)
+            if self.vox_also_dn_mask or (self.from_bev_mask_forward_head_once_more == False and self.from_bev_mask == False):
+                if self.dn_enable and self.training:
+                    if self.noise_type == 'gt' or self.noise_type == 'point':
+                        padding_mask = self.gen_mask_dn(targets, size_list[(i + 1) % self.num_transformer_decoder_layers], known_bid, map_known_indices)
+                    else:
+                        padding_mask = padding_mask_3level[(i + 1) % self.num_transformer_decoder_layers]
+                    attn_mask=attn_mask.view([batch_size,self.num_heads,-1,attn_mask.shape[-1]])
+                    attn_mask[:,:,:dn_pad_size]=padding_mask
+                    attn_mask=attn_mask.flatten(0,1)
         
         cls_pred_list_ = []
         mask_pred_list_ = []
@@ -1013,6 +1107,9 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
     def simple_test(self, 
             voxel_feats,
             img_metas,
+            mask_query=None,
+            points=None,
+            bev_attn_mask=None,
             **kwargs,
         ):
         """Test without augmentaton.
@@ -1031,7 +1128,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             - mask_pred_results (Tensor): Mask logits, shape \
                 (batch_size, num_queries, h, w).
         """
-        all_cls_scores, all_mask_preds, _ = self(voxel_feats, img_metas)
+        all_cls_scores, all_mask_preds, _ = self(voxel_feats, img_metas, mask_query, bev_attn_mask)
         mask_cls_results = all_cls_scores[-1]
         mask_pred_results = all_mask_preds[-1]
         
