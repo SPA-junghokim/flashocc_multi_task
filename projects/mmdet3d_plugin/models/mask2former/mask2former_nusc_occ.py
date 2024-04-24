@@ -668,7 +668,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         mask_pred = torch.einsum('bqc,bcxyz->bqxyz', mask_embed, mask_feature)
 
         ''' 对于一些样本数量较少的类别来说，经过 trilinear 插值 + 0.5 阈值，正样本直接消失 '''
-        breakpoint()
+
         if self.num_transformer_decoder_layers != 0:
             if self.pooling_attn_mask:
                 # however, using max-pooling can save more positive samples, which is quite important for rare classes
