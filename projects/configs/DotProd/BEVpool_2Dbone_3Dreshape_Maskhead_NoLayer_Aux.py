@@ -74,7 +74,7 @@ model = dict(
     voxel_out_channels = voxel_out_channels,
     only_last_layer=True,
     vox_simple_reshape=True,
-    vox_aux_loss_3d=False,
+    vox_aux_loss_3d=True,
     
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',

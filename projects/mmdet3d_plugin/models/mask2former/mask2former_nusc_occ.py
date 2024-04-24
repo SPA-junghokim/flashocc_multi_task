@@ -885,7 +885,6 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             if multi_scale_memorys[i].dim()==5:
                 multi_scale_memorys[i] = multi_scale_memorys[i].permute(0,1,3,2,4)
         
-        breakpoint()
         decoder_inputs = []
         decoder_positional_encodings = []
         size_list = []
