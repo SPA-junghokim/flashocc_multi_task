@@ -49,6 +49,10 @@ class RenderOCCHead2D(BaseModule):
                  
                  use_3d_loss=True,
                  nerf_head=None,
+                 last_no_softplus=False,
+                 cnn_head=False,
+                 cnn_soft_plus=False,
+                 render_loss_weight=None,
                  ):
         super(RenderOCCHead2D, self).__init__()
         self.in_dim = in_dim
@@ -63,20 +67,17 @@ class RenderOCCHead2D(BaseModule):
             bias=True,
             conv_cfg=dict(type='Conv2d')
         )
-        
 
         self.use_mask = use_mask
         self.num_classes = num_classes
         self.class_balance = class_balance
-        
+        self.loss_weight =loss_weight
+        self.render_loss_weight = render_loss_weight if render_loss_weight is not None else loss_weight
         self.channel_down_for_3d = channel_down_for_3d
         if self.channel_down_for_3d:
             self.channel_down_for_3d = nn.Linear(channel_down_for_3d, self.in_dim)
-            
-        
         
         self.use_3d_loss = use_3d_loss
-        
         
         if self.class_balance:
             class_weights = torch.from_numpy(1 / np.log(nusc_class_frequencies[:17] + 0.001)).float()
@@ -89,19 +90,75 @@ class RenderOCCHead2D(BaseModule):
             self.semantic_loss = nn.CrossEntropyLoss(reduction="mean")
             
         self.loss_occ = build_loss(loss_occ)
-
-        self.density_mlp = nn.Sequential(
-            nn.Linear(self.out_dim, self.out_dim * 2),
-            nn.Softplus(),
-            nn.Linear(self.out_dim * 2, 2 * Dz),
-            nn.Softplus(),
-        )
         
-        self.semantic_mlp = nn.Sequential(
-            nn.Linear(self.out_dim, self.out_dim * 2),
-            nn.Softplus(),
-            nn.Linear(self.out_dim * 2, (num_classes - 1) * Dz),
-        )
+        self.last_no_softplus = last_no_softplus
+        self.cnn_head = cnn_head
+        self.cnn_soft_plus = cnn_soft_plus
+        
+        if self.cnn_head:
+            if self.cnn_soft_plus:
+                self.semantic_mlp = nn.Sequential(
+                    nn.Conv2d(self.out_dim, self.out_dim * 2, 3, padding= 1),
+                    # nn.BatchNorm2d(self.out_dim* 2),
+                    nn.Softplus(),
+                    nn.Conv2d(self.out_dim* 2, (num_classes - 1) * Dz , 3, padding=1),
+                )
+                if last_no_softplus:
+                    self.density_mlp = nn.Sequential(
+                        nn.Conv2d(self.out_dim, self.out_dim * 2, 3, padding=1),
+                        # nn.BatchNorm2d(self.out_dim* 2),
+                        nn.Softplus(),
+                        nn.Conv2d(self.out_dim* 2, 2 * Dz , 1,),
+                    )
+                else:
+                    self.density_mlp = nn.Sequential(
+                        nn.Conv2d(self.out_dim, self.out_dim * 2, 3, padding=1),
+                        # nn.BatchNorm2d(self.out_dim* 2),
+                        nn.Softplus(),
+                        nn.Conv2d(self.out_dim* 2, 2 * Dz , 1,),
+                        nn.Softplus(),
+                    )
+            else:
+                self.semantic_mlp = nn.Sequential(
+                    nn.Conv2d(self.out_dim, self.out_dim * 2, 3, padding= 1),
+                    # nn.BatchNorm2d(self.out_dim* 2),
+                    nn.ReLU(),
+                    nn.Conv2d(self.out_dim* 2, (num_classes - 1) * Dz , 1,),
+                )
+                if last_no_softplus:
+                    self.density_mlp = nn.Sequential(
+                        nn.Conv2d(self.out_dim, self.out_dim * 2, 3, padding=1),
+                        # nn.BatchNorm2d(self.out_dim* 2),
+                        nn.ReLU(),
+                        nn.Conv2d(self.out_dim* 2, 2 * Dz , 1),
+                    )
+                else:
+                    self.density_mlp = nn.Sequential(
+                        nn.Conv2d(self.out_dim, self.out_dim * 2, 3, padding=1),
+                        # nn.BatchNorm2d(self.out_dim* 2),
+                        nn.ReLU(),
+                        nn.Conv2d(self.out_dim* 2, 2 * Dz , 1),
+                        nn.ReLU(),
+                    )
+        else:
+            if last_no_softplus:
+                self.density_mlp = nn.Sequential(
+                    nn.Linear(self.out_dim, self.out_dim * 2),
+                    nn.Softplus(),
+                    nn.Linear(self.out_dim * 2, 2 * Dz),
+                )
+            else:
+                self.density_mlp = nn.Sequential(
+                    nn.Linear(self.out_dim, self.out_dim * 2),
+                    nn.Softplus(),
+                    nn.Linear(self.out_dim * 2, 2 * Dz),
+                    nn.Softplus(),
+                )
+            self.semantic_mlp = nn.Sequential(
+                nn.Linear(self.out_dim, self.out_dim * 2),
+                nn.Softplus(),
+                nn.Linear(self.out_dim * 2, (num_classes - 1) * Dz),
+            )
         
         if nerf_head is not None:
             self.nerf_head = build_head(nerf_head)
@@ -120,16 +177,18 @@ class RenderOCCHead2D(BaseModule):
             B, C, Z, H, W = img_feats.shape
             img_feats = img_feats.reshape(B, C*Z, H, W).permute(0, 2, 3, 1)
             img_feats = self.channel_down_for_3d(img_feats).permute(0, 3, 1, 2)
-            
-        occ_pred = self.final_conv(img_feats).permute(0, 3, 2, 1)
-        bs, Dx, Dy = occ_pred.shape[:3]
-        # (B, Dx, Dy, C) --> (B, Dx, Dy, 2*C) --> (B, Dx, Dy, Dz*n_cls)
-        density_prob = self.density_mlp(occ_pred)
-        density_prob = density_prob.view(bs, Dx, Dy, self.Dz, 2)
+        if self.cnn_head:
+            occ_pred = self.final_conv(img_feats)
+            density_prob = self.density_mlp(occ_pred).permute(0, 3, 2, 1)
+            semantic = self.semantic_mlp(occ_pred).permute(0, 3, 2, 1)
 
-        # (B, Dx, Dy, C) --> (B, Dx, Dy, 2*C) --> (B, Dx, Dy, Dz*(N_cls-1))
-        semantic = self.semantic_mlp(occ_pred)
-        # (B, Dx, Dy, Dz*(N_cls-1)) --> (B, Dx, Dy, Dz, N_cls-1)
+        else:
+            occ_pred = self.final_conv(img_feats).permute(0, 3, 2, 1)
+            density_prob = self.density_mlp(occ_pred)
+            semantic = self.semantic_mlp(occ_pred)
+        
+        bs, Dx, Dy = semantic.shape[:3]
+        density_prob = density_prob.view(bs, Dx, Dy, self.Dz, 2)
         semantic = semantic.view(bs, Dx, Dy, self.Dz, self.num_classes-1)
 
         return [density_prob, semantic]
@@ -173,9 +232,13 @@ class RenderOCCHead2D(BaseModule):
             voxel_semantics = voxel_semantics.long()
             mask_camera = mask_camera.to(torch.int32)   # (B, Dx, Dy, Dz)
             loss_occ = self.loss_3d(voxel_semantics, mask_camera, density_prob, semantic)
+            for k,v in loss_occ.items():
+                loss_occ[k] = self.loss_weight * v
             loss.update(loss_occ)
         if self.nerf_head:  # 2D rendering loss
             loss_rendering = self.nerf_head(density, semantic, rays=kwargs['rays'], bda=kwargs['bda'])
+            for k,v in loss_rendering.items():
+                loss_rendering[k] = self.render_loss_weight * v
             loss.update(loss_rendering)
                 
         return loss
@@ -197,6 +260,7 @@ class RenderOCCHead2D(BaseModule):
         occ = torch.ones((B, H, W, Z), dtype=semantic_res.dtype).to(semantic_res.device)
         occ = occ * (self.num_classes - 1)
         occ[no_empty_mask] = semantic_res[no_empty_mask]
-
-        occ = occ.squeeze(dim=0).cpu().numpy().astype(np.uint8)
+        
+        # occ_res = occ.squeeze(dim=0).cpu().numpy().astype(np.uint8)
+        occ_res = occ.cpu().numpy().astype(np.uint8)
         return list(occ_res)

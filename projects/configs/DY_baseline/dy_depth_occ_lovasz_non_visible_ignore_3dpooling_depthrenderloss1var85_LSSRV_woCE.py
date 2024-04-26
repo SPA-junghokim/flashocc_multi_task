@@ -79,6 +79,12 @@ model = dict(
         collapse_z=True,
         downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
+        dpeht_render_loss=True,
+        variance_focus=0.85,
+        render_loss_depth_weight=1,
+        depth_loss_ce=False,
+        depth_render_sigmoid=True,
+        LSS_Rendervalue=True 
         ),
     down_sample_for_3d_pooling=[numC_Trans_pool*16, numC_Trans],
     img_bev_encoder_backbone=dict(
@@ -90,35 +96,23 @@ model = dict(
         in_channels=numC_Trans * 8 + numC_Trans * 2,
         out_channels=256),
     occ_head=dict(
-        type='RenderOCCHead2D',
+        type='BEVOCCHead2D',
         in_dim=256,
         out_dim=256,
         Dz=16,
         use_mask=True,
         num_classes=18,
-        use_predicter=False,
+        use_predicter=True,
         class_wise=False,
-        
-        use_3d_loss=True,
-        class_balance=True,
-        
         loss_occ=dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
-            loss_weight=1.0),
-        
-        nerf_head=dict(
-            type='NerfHead',
-            point_cloud_range=[-40, -40, -1, 40, 40, 5.4],
-            voxel_size=0.4,
-            scene_center=[0, 0, 2.2],
-            radius=39,
-            use_depth_sup=True,
-            weight_depth=0.1,
-            weight_semantic=0.1,
+            ignore_index=255,
+            loss_weight=1.0,
         ),
+        sololoss=True,
+        loss_weight=10,
     ),
-    
     det_loss_weight = 1,
     occ_loss_weight = 1,
     seg_loss_weight = 1.,
@@ -135,9 +129,6 @@ bda_aug_conf = dict(
     flip_dx_ratio=0.5,
     flip_dy_ratio=0.5
 )
-
-depth_gt_path = 'data/nuscenes/depth_gt'
-semantic_gt_path = 'data/nuscenes/seg_gt_lidarseg'
 
 train_pipeline = [
     dict(
@@ -161,9 +152,7 @@ train_pipeline = [
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
         type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar','mask_camera',
-                                'rays'
-                               ])
+                                'mask_lidar', 'mask_camera'])
 ]
 
 test_pipeline = [
@@ -191,8 +180,7 @@ test_pipeline = [
                 class_names=class_names,
                 with_label=False),
             dict(type='Collect3D', keys=['points', 'img_inputs', 'voxel_semantics',
-                                        'mask_lidar','mask_camera',
-                                        'rays'])
+                                'mask_lidar', 'mask_camera'])
         ])
 ]
 
@@ -235,11 +223,6 @@ data = dict(
         # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
         # and box_type_3d='Depth' in sunrgbd and scannet dataset.
         box_type_3d='LiDAR',
-        use_rays=True,
-        depth_gt_path=depth_gt_path,
-        semantic_gt_path=semantic_gt_path,
-        aux_frames=[-3,-2,-1,1,2,3],
-        max_ray_nums=38400,
         ),
     val=test_data_config,
     test=test_data_config
@@ -249,15 +232,15 @@ for key in ['val', 'train', 'test']:
     data[key].update(share_data_config)
 
 # Optimizer
-optimizer = dict(type='AdamW', lr=1e-4, weight_decay=1e-2)
+optimizer = dict(type='AdamW', lr=2e-5, weight_decay=1e-2)
 optimizer_config = dict(grad_clip=dict(max_norm=5, norm_type=2))
 lr_config = dict(
     policy='step',
     warmup='linear',
     warmup_iters=200,
     warmup_ratio=0.001,
-    step=[24, ])
-runner = dict(type='EpochBasedRunner', max_epochs=24)
+    step=[12, ])
+runner = dict(type='EpochBasedRunner', max_epochs=12)
 
 custom_hooks = [
     dict(
@@ -269,27 +252,5 @@ custom_hooks = [
 
 # load_from = "ckpts/bevdet-r50-cbgs.pth"
 # fp16 = dict(loss_scale='dynamic')
-evaluation = dict(interval=1, start=24, pipeline=test_pipeline)
+evaluation = dict(interval=1, start=12, pipeline=test_pipeline)
 checkpoint_config = dict(interval=1, max_keep_ckpts=5)
-
-
-# with det pretrain; use_mask=True; out_dim=256,
-# ===> per class IoU of 6019 samples:
-# ===> others - IoU = 6.74
-# ===> barrier - IoU = 37.65
-# ===> bicycle - IoU = 10.26
-# ===> bus - IoU = 39.55
-# ===> car - IoU = 44.36
-# ===> construction_vehicle - IoU = 14.88
-# ===> motorcycle - IoU = 13.4
-# ===> pedestrian - IoU = 15.79
-# ===> traffic_cone - IoU = 15.38
-# ===> trailer - IoU = 27.44
-# ===> truck - IoU = 31.73
-# ===> driveable_surface - IoU = 78.82
-# ===> other_flat - IoU = 37.98
-# ===> sidewalk - IoU = 48.7
-# ===> terrain - IoU = 52.5
-# ===> manmade - IoU = 37.89
-# ===> vegetation - IoU = 32.24
-# ===> mIoU of 6019 samples: 32.08

@@ -222,7 +222,7 @@ class DepthNet(nn.Module):
             self.bias = bias
 
         # 3个残差blocks
-        depth_conv_list = [BasicBlock(depth_conv_input_channels, mid_channels,downsample=downsample),
+        depth_conv_list = [BasicBlock(depth_conv_input_channels, mid_channels, downsample=downsample),
                            BasicBlock(mid_channels, mid_channels),
                            BasicBlock(mid_channels, mid_channels)]
         
@@ -415,10 +415,7 @@ class DepthNet(nn.Module):
         else:
             # 3*res blocks +ASPP/DCN + Conv(c_mid-->D)
             depth = self.depth_conv(depth)  # x: (B*N_views, C_mid, fH, fW) --> (B*N_views, D, fH, fW)
-        if ea_lss:
-            return torch.cat([depth, context], dim=1), depth
-        else:
-            return torch.cat([depth, context], dim=1)
+        return torch.cat([depth, context], dim=1), context
 
 
 class DepthAggregation(nn.Module):

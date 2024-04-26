@@ -80,7 +80,7 @@ model = dict(
         downsample=16,
         virtual_depth=True,
         virtual_depth_bin=180,
-        min_ida_scale=0.38*0.9,
+        min_ida_scale=0.38 * 0.9,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
         ),
     img_bev_encoder_backbone=dict(
