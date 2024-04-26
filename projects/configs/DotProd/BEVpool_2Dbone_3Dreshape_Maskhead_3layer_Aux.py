@@ -245,7 +245,7 @@ model = dict(
             oversample_ratio=3.0,
             importance_sample_ratio=0.75,
             assigner=dict(
-                type='MaskHungarianAssigner',
+                type='MaskHungarianAssigner_occ',
                 cls_cost=dict(type='ClassificationCost', weight=2.0),
                 mask_cost=dict(
                     type='CrossEntropyLossCost', weight=5.0, use_sigmoid=True),
