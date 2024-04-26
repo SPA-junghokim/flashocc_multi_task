@@ -4,5 +4,6 @@ from .swin import SwinTransformer
 from .tri_res import CustomTriRes
 from .tri_res_v2 import CustomTriResV2
 from .tri_res_v3 import CustomTriResV3
+from .repvgg import RepVGG
 
-__all__ = ['ResNet', 'CustomResNet', 'SwinTransformer']
+__all__ = ['ResNet', 'CustomResNet', 'SwinTransformer', 'RepVGG']

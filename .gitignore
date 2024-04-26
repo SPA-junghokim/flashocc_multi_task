@@ -33,3 +33,4 @@ test*.sh
 temp/
 
 debug/
+ckpts/

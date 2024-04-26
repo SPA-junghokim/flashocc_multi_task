@@ -1,17 +1,103 @@
+# Copyright (c) Phigent Robotics. All rights reserved.
 from ...ops import TRTBEVPoolv2
 from .bevdet import BEVDet
 from .bevdepth4d import BEVDepth4D
+from .bevstereo4d import BEVStereo4D
 from mmdet3d.models import DETECTORS
 from mmdet3d.models.builder import build_head
 import torch.nn.functional as F
 import torch.nn as nn
 import torch
+from copy import deepcopy
 from mmcv.runner import force_fp32
 from mmdet3d.models import builder
-from mmcv.cnn import ConvModule
+import time
+
+class voxelize_module(nn.Module):
+    def __init__(
+            self,
+            after_voxelize_add = False,
+            bev_z_list = [16, 8, 4, 2],
+            bev_w_list = [200, 100, 50, 25],
+            bev_h_list = [200, 100, 50, 25],
+            num_scale = 4,
+            in_dim=96,
+            only_last_layer=False,
+            vox_simple_reshape=False,
+    ):
+        super(voxelize_module, self).__init__()
+        self.bev_h_list = bev_h_list
+        self.bev_w_list = bev_w_list
+        self.bev_z_list = bev_z_list
+        self.num_scale = num_scale
+        self.after_voxelize_add = after_voxelize_add
+        
+        self.sig = nn.Sigmoid()
+        
+        self.linear = nn.ModuleList()
+        self.zembedding_linear = nn.ModuleList()
+        self.avg_pool = nn.ModuleList()
+        self.upsample = nn.ModuleList()
+        self.only_last_layer = only_last_layer
+        self.vox_simple_reshape = vox_simple_reshape
+        
+        if self.only_last_layer:
+            if self.vox_simple_reshape:
+                self.linear = nn.Sequential(
+                    nn.Linear(in_dim, 2 * in_dim),
+                    nn.ReLU(),
+                    nn.Linear(2*in_dim, self.bev_z_list[0] * in_dim),
+                )
+            else:
+                self.linear = nn.Linear(in_dim, self.bev_z_list[0])
+                self.zembedding_linear = nn.Linear(in_dim, self.bev_z_list[0]*in_dim)
+                self.avg_pool = nn.AvgPool2d((self.bev_h_list[0], self.bev_w_list[0]))
+        else:
+            for i in range(self.num_scale):
+                self.linear.append(nn.Linear(in_dim, self.bev_z_list[i]))
+                self.zembedding_linear.append(nn.Linear(in_dim, self.bev_z_list[i]*in_dim))
+                self.avg_pool.append(nn.AvgPool2d((self.bev_h_list[i], self.bev_w_list[i])))
+                if self.after_voxelize_add:
+                    if i < self.num_scale -1:
+                        self.upsample.append(nn.ConvTranspose3d(in_channels=in_dim, out_channels=in_dim, kernel_size=2, stride=2))
+
+
+    def forward(self, x):
+        bs = x[0].shape[0]
+        
+        if self.only_last_layer:
+            if self.vox_simple_reshape:
+                x_linear = self.linear(x[0].permute(0,2,3,1))
+                B, H, W, C_Z = x_linear.shape
+                x[0] = x_linear.reshape(B, H, W, self.bev_z_list[0], -1).permute(0,4,1,2,3)
+            else:
+                attn_weight = self.sig(self.linear(x[0].permute(0,2,3,1)))[:,None]
+                pooled_feat = self.avg_pool(x[0]).squeeze()
+                zembedding = self.sig(self.zembedding_linear(pooled_feat).reshape(bs, -1, self.bev_z_list[0]))
+                x[0] = attn_weight * x[0][...,None]
+                x[0] = x[0] * zembedding[:, :, None, None, :] # [[B, 256, 200, 200, 16]
+        else:
+            for i in range(self.num_scale):
+                attn_weight = self.sig(self.linear[i](x[i].permute(0,2,3,1)))[:,None]
+                pooled_feat = self.avg_pool[i](x[i]).squeeze()
+                zembedding = self.sig(self.zembedding_linear[i](pooled_feat).reshape(bs, -1, self.bev_z_list[i]))
+                x[i] = attn_weight * x[i][...,None]
+                x[i] = x[i] * zembedding[:, :, None, None, :] # [[B, 256, 200, 200, 16]
+                
+            if self.after_voxelize_add:
+                for i in range(self.num_scale - 1):
+                    x[self.num_scale-2-i] = x[self.num_scale-2-i] + self.upsample[i](x[self.num_scale-1-i])
+            
+            # x[0] [2, 48, 200, 200, 16]
+            # x[1] [2, 48, 100, 100, 8]
+            # x[2] [2, 48, 50, 50, 4]
+            # x[3] [2, 48, 25, 25, 2]
+        
+        return x
+
 
 @DETECTORS.register_module()
-class BEVDepth4D_MTL(BEVDepth4D):
+class BEVDetOCC_depthGT_occformer(BEVDepth4D):
     def __init__(self,
                  pts_bbox_head=None,
                  occ_head=None,
@@ -32,17 +118,22 @@ class BEVDepth4D_MTL(BEVDepth4D):
                  seg_bev_encoder_neck=None,
                  detection_backbone=False,
                  detection_neck=False,
-                 imgfeat_32x88=False,
-                 SA_loss=False,
-                 depth_attn=None,
-                 frustum_depth_attr=False,
-                 frustum_to_voxel=None,
-                 frustum_depth_detach=False,
-                 frustum_depth_residual=False,
-                 pooling_head = False,
-                 time_check=False,
+                 
+                 voxel_out_channels = 96,
+                 after_voxelize_add = False,
+                 imgfeat_32x88 = False,
+                 only_last_layer=False,
+                 vox_aux_loss_3d=False,
+                 vox_aux_loss_3d_occ_head=None,
+                 vox_simple_reshape=False,
+                 aux_test=False,
+                 
+                 bev_neck_deform=False,
+                 bev_deform_backbone=None,
+                 bev_deform_neck = None,
+                 
                  **kwargs):
-        super(BEVDepth4D_MTL, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
+        super(BEVDetOCC_depthGT_occformer, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
                                              img_bev_encoder_neck=img_bev_encoder_neck,**kwargs)
         
         self.occ_head = occ_head
@@ -73,7 +164,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
         self.seg_loss_weight = seg_loss_weight
         self.detection_backbone = detection_backbone
         self.detection_neck = detection_neck
-        self.SA_loss = SA_loss
         
         if img_bev_encoder is not None:
             self.img_bev_encoder = builder.build_backbone(img_bev_encoder)
@@ -82,22 +172,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
         else:
             self.img_bev_encoder = None
 
-        self.depth_attn = depth_attn
-        self.frustum_depth_attr = frustum_depth_attr
-        self.frustum_depth_detach = frustum_depth_detach
-        self.frustum_depth_residual = frustum_depth_residual
-        self.pooling_head = pooling_head
-        if self.depth_attn is not None:
-            self.frustum_to_voxel = builder.build_neck(frustum_to_voxel)
-            self.depth_attn_downsample_conv = ConvModule( # 1x1 conv3d 가 빠른지 linear 가 빠른지 비교
-                self.depth_attn[0],
-                self.depth_attn[1],
-                kernel_size=1,
-                stride=1,
-                padding=0,
-                bias=True,
-                conv_cfg=dict(type='Conv3d')
-            )
             
         if occ_bev_encoder_backbone is not None:
             self.occ_bev_encoder_backbone = builder.build_backbone(occ_bev_encoder_backbone)
@@ -121,13 +195,25 @@ class BEVDepth4D_MTL(BEVDepth4D):
         if self.imgfeat_32x88:
             self.neck_upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
             self.reduce_conv_neck = nn.Conv2d(512 + kwargs['img_neck']['out_channels'] , kwargs['img_neck']['out_channels'], 1)
-                
-        self.time_check = time_check
-        if self.time_check:
-            self.start_event = torch.cuda.Event(enable_timing=True)
-            self.end_event = torch.cuda.Event(enable_timing=True)
-            self.time_list = []
         
+        self.voxelize_module = voxelize_module(
+            after_voxelize_add = after_voxelize_add,
+            in_dim=voxel_out_channels,
+            only_last_layer=only_last_layer,
+            vox_simple_reshape=vox_simple_reshape)
+        
+            
+        self.bev_neck_deform = bev_neck_deform
+        if bev_neck_deform:
+            self.img_bev_encoder_backbone = builder.build_neck(bev_deform_backbone)
+            self.bev_deform_neck = builder.build_neck(bev_deform_neck)
+            
+        self.vox_aux_loss_3d = vox_aux_loss_3d
+        if self.vox_aux_loss_3d:
+            self.vox_aux_loss_3d_occ_head = build_head(vox_aux_loss_3d_occ_head)
+        self.aux_test = aux_test
+            
+            
     def extract_feat(self, points, img_inputs, img_metas, **kwargs):
         """Extract features from images and points."""
         """
@@ -142,9 +228,9 @@ class BEVDepth4D_MTL(BEVDepth4D):
                 post_trans:  (B, N_views, 3)
                 bda_rot:  (B, 3, 3)
         """
-        img_feats, depth, trans_feat = self.extract_img_feat(img_inputs, img_metas, **kwargs)
+        img_feats, depth = self.extract_img_feat(img_inputs, img_metas, **kwargs)
         pts_feats = None
-        return img_feats, pts_feats, depth, trans_feat
+        return img_feats, pts_feats, depth
 
 
     def image_encoder(self, img, stereo=False):
@@ -164,7 +250,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
         if stereo:
             stereo_feat = x[0]
             x = x[1:]
-        # breakpoint()
         if self.with_img_neck:
             if self.imgfeat_32x88:
                 neck_out = self.img_neck(x[1:])
@@ -200,11 +285,11 @@ class BEVDepth4D_MTL(BEVDepth4D):
         x, _ = self.image_encoder(img)      # x: (B, N, C, fH, fW)
         # bev_feat: (B, C * Dz(=1), Dy, Dx)
         # depth: (B * N, D, fH, fW)
-        bev_feat, depth, trans_feat = self.img_view_transformer(
+        bev_feat, depth = self.img_view_transformer(
             [x, sensor2egos, ego2globals, intrin, post_rot, post_tran, bda, mlp_input])
         if self.pre_process:
             bev_feat = self.pre_process_net(bev_feat)[0]    # (B, C, Dy, Dx)
-        return bev_feat, depth, trans_feat
+        return bev_feat, depth
 
     def forward_train(self,
                       points=None,
@@ -248,24 +333,16 @@ class BEVDepth4D_MTL(BEVDepth4D):
         # img_feats: List[(B, C, Dz, Dy, Dx)/(B, C, Dy, Dx) , ]
         # pts_feats: None
         # depth: (B*N_views, D, fH, fW)
-        img_feats, pts_feats, depth, trans_feat = self.extract_feat(
+        img_feats, pts_feats, depth = self.extract_feat(
                 points, img_inputs=img_inputs, img_metas=img_metas, **kwargs)
 
         gt_depth = kwargs['gt_depth']   # (B, N_views, img_H, img_W)
-
         
         losses = dict()
-        if self.SA_loss:
-            sa_gt_depth = kwargs['SA_gt_depth']
-            sa_gt_semantic = kwargs['SA_gt_semantic']
-            loss_depth = self.img_view_transformer.get_SA_loss(trans_feat, depth, sa_gt_depth, sa_gt_semantic)
-        else:
-            loss_depth = self.img_view_transformer.get_depth_loss(gt_depth, depth)
-
+        loss_depth = self.img_view_transformer.get_depth_loss(gt_depth, depth)
         losses.update(loss_depth)
         
-        # Get box losses
-        det_feats, occ_feats, seg_feats =  img_feats
+        det_feats, occ_bev_feats, occ_vox_feats, seg_feats =  img_feats
 
         if self.pts_bbox_head is not None:
             bbox_outs = self.pts_bbox_head([det_feats])
@@ -276,7 +353,11 @@ class BEVDepth4D_MTL(BEVDepth4D):
             losses.update(loss_weight)
             
         if self.occ_head is not None:
-            loss_occ = self.forward_occ_train(occ_feats, voxel_semantics, mask_camera, img_inputs, depth, **kwargs)
+            if 'non_vis_semantic_voxel' in list(kwargs.keys()):
+                non_vis_semantic_voxel = kwargs['non_vis_semantic_voxel']     # (B, Dx, Dy, Dz)
+            else:
+                non_vis_semantic_voxel = [None] * mask_camera.shape[0]
+            loss_occ = self.forward_occ_train(occ_bev_feats, occ_vox_feats, voxel_semantics, mask_camera, non_vis_semantic_voxel, img_inputs, depth)
             loss_weight = {}
             for k, v in loss_occ.items():
                 loss_weight[k] = v * self.occ_loss_weight
@@ -293,7 +374,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         
         return losses
 
-    def forward_occ_train(self, img_feats, voxel_semantics, mask_camera, img_inputs, depth, **kwargs):
+    def forward_occ_train(self, occ_bev_feats, occ_vox_feats, voxel_semantics, mask_camera, non_vis_semantic_voxel, img_inputs, depth, **kwargs):
         """
         Args:
             img_feats: (B, C, Dz, Dy, Dx) / (B, C, Dy, Dx)
@@ -301,52 +382,19 @@ class BEVDepth4D_MTL(BEVDepth4D):
             mask_camera: (B, Dx, Dy, Dz)
         Returns:
         """
-        if self.depth_attn:
-            imgs, sensor2egos, ego2globals, intrins, post_rots, post_trans, bda = img_inputs
-            if self.frustum_depth_detach:
-                depth_for_voxel = depth.detach()
-            else:
-                depth_for_voxel = depth
-            B,N,C,H_,W_ = imgs.shape
-            _,_,H,W = depth.shape
-            bda_4x4 = torch.repeat_interleave(torch.eye(4)[None], 4, 0).to(imgs.device)
-            bda_4x4[:,:2,:2] = bda[:,:2,:2]
-            bda_4x4 = bda_4x4[:,None].repeat(1,N,1,1).reshape(B*N,4,4)
-            ida_mat = torch.repeat_interleave(torch.eye(3)[None], B * N, dim=0).view(B, N, 3, 3).to(imgs[0].device)
-            ida_mat[:,:,:3,:3] = post_rots
-            ida_mat[:,:,:2,2] = post_trans[:,:,:2]
-            trans_cam_to_img = torch.zeros(B, N, 3, 4).to(imgs.device)
-            trans_cam_to_img[:,:,:3,:3] = ida_mat.matmul(intrins)
-            trans_lidar_to_cam = torch.inverse(sensor2egos)
-            image_shape = torch.tensor([H_,W_]).to(imgs.device).float()
-            if self.frustum_depth_attr == 'trasnmittance':
-                frustum_features = depth_for_voxel.cumsum(1).reshape(B,N,-1,H,W)
-                canvas_ones = True
-            elif self.frustum_depth_attr == 'reverse_transmittance':
-                frustum_features = depth_for_voxel.cumsum(1).reshape(B,N,-1,H,W)
-                frustum_features = 1 - frustum_features
-                canvas_ones = False
-            else:
-                frustum_features = depth_for_voxel.reshape(B,N,-1,H,W)
-                canvas_ones = False
-            voxel_score = self.frustum_to_voxel(trans_lidar_to_cam, trans_cam_to_img, image_shape, bda_4x4, frustum_features, canvas_ones)
-            
-            img_feats_depthattn = img_feats[:,:,None] * voxel_score[:,None]
-            if self.frustum_depth_residual:
-                img_feats_depthattn = img_feats_depthattn + img_feats[:,:,None]
-            img_feats = self.depth_attn_downsample_conv(img_feats_depthattn)
-            if self.pooling_head:
-                img_feats = img_feats.reshape(B,-1, self.grid_size[0],self.grid_size[1])
-                
-        outs = self.occ_head(img_feats)
-        # assert voxel_semantics.min() >= 0 and voxel_semantics.max() <= 17
-        kwargs['bda'] = img_inputs[-1]
-        loss_occ = self.occ_head.loss(
-            outs,  # (B, Dx, Dy, Dz, n_cls)
-            voxel_semantics,  # (B, Dx, Dy, Dz)
-            mask_camera,  # (B, Dx, Dy, Dz)
-            **kwargs,
-        )
+        #img_feats = [4, 128, 200, 200]
+        B = occ_bev_feats[0].shape[0]
+        img_metas = [{"pc_range": self.pc_range, "occ_size":self.grid_size} for i in range(B)]
+        
+        loss_occ = self.occ_head.forward_train(occ_vox_feats, img_metas, voxel_semantics, mask_camera, non_vis_semantic_voxel)
+        
+        if self.vox_aux_loss_3d:
+            aux_occ_pred = self.vox_aux_loss_3d_occ_head(occ_vox_feats[0].permute(0,1,4,2,3))
+            loss_aux_3d = self.vox_aux_loss_3d_occ_head.loss(aux_occ_pred, voxel_semantics, mask_camera,)
+            new_loss_aux_3d = dict()
+            for k, v in loss_aux_3d.items():
+                new_loss_aux_3d[k+'_aux3d'] = v
+            loss_occ.update(new_loss_aux_3d)
         return loss_occ
 
     def simple_test(self,
@@ -359,88 +407,35 @@ class BEVDepth4D_MTL(BEVDepth4D):
                     mask_camera=None,
                     gt_seg_mask=None,
                     **kwargs):
-        # img_feats: List[(B, C, Dz, Dy, Dx)/(B, C, Dy, Dx) , ]
-        # pts_feats: None
-        # depth: (B*N_views, D, fH, fW)
-        if self.time_check:
-            self.start_event.record()
-            
-        img_feats, _, depth, trans_feat = self.extract_feat(
+        
+        img_feats, _, depth = self.extract_feat(
             points, img_inputs=img, img_metas=img_metas, **kwargs)
         
-        det_feats, occ_feats, seg_feats =  img_feats
+        det_feats, occ_bev_feats, occ_vox_feats, seg_feats =  img_feats
         bbox_out, occ_out, seg_out = None, None, None
         if self.pts_bbox_head is not None:
             bbox_pts = self.simple_test_pts([det_feats], img_metas, rescale=rescale)
             bbox_out = [dict(pts_bbox=bbox_pts[0])]
             
         if self.occ_head is not None:
-            occ_out = self.simple_test_occ(occ_feats, img_metas, depth, img)    # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
+            occ_out = self.simple_test_occ(occ_bev_feats, occ_vox_feats, img_metas, depth, img)    # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
     
         if self.seg_head is not None:
             seg_out = self.seg_head(seg_feats)
 
-        if self.time_check:
-            self.end_event.record() 
-            torch.cuda.synchronize()  
-            cur_iter_time = self.start_event.elapsed_time(self.end_event)
-            print(cur_iter_time)
-            self.time_list.append(cur_iter_time)
-            if len(self.time_list ) > 1000:
-                print(sum(self.time_list[500:])/len(self.time_list[500:]))
-                exit()
-            
         return bbox_out, occ_out, voxel_semantics, mask_lidar, mask_camera, seg_out, gt_seg_mask
 
-    def simple_test_occ(self, img_feats, img_metas=None, depth=None, img_inputs=None):
-        """
-        Args:
-            img_feats: (B, C, Dz, Dy, Dx) / (B, C, Dy, Dx)
-            img_metas:
+    def simple_test_occ(self, occ_bev_feats, occ_vox_feats, img_metas=None, depth=None, img_inputs=None):
+        B = occ_bev_feats[0].shape[0]
+        img_metas_occ = [{"pc_range": self.pc_range, "occ_size":self.grid_size} for i in range(B)]
+        
+        if self.aux_test:
+            aux_occ_pred = self.vox_aux_loss_3d_occ_head(occ_bev_feature[0].permute(0,1,4,2,3))
+            aux_occ_preds = self.vox_aux_loss_3d_occ_head.get_occ(aux_occ_pred, img_metas)      # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
+            return aux_occ_preds
 
-        Returns:
-            occ_preds: List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
-        """
-        if self.depth_attn:
-                
-            imgs, sensor2egos, ego2globals, intrins, post_rots, post_trans, bda = img_inputs
-            if self.frustum_depth_detach:
-                depth_for_voxel = depth.detach()
-            else:
-                depth_for_voxel = depth
-            B,N,C,H_,W_ = imgs.shape
-            _,_,H,W = depth.shape
-            bda_4x4 = torch.repeat_interleave(torch.eye(4)[None], B, 0).to(imgs.device)
-            bda_4x4[:,:2,:2] = bda[:,:2,:2]
-            bda_4x4 = bda_4x4[:,None].repeat(1,N,1,1).reshape(B*N,4,4)
-            ida_mat = torch.repeat_interleave(torch.eye(3)[None], B * N, dim=0).view(B, N, 3, 3).to(imgs[0].device)
-            ida_mat[:,:,:3,:3] = post_rots
-            ida_mat[:,:,:2,2] = post_trans[:,:,:2]
-            trans_cam_to_img = torch.zeros(B, N, 3, 4).to(imgs.device)
-            trans_cam_to_img[:,:,:3,:3] = ida_mat.matmul(intrins)
-            trans_lidar_to_cam = torch.inverse(sensor2egos)
-            image_shape = torch.tensor([H_,W_]).to(imgs.device).float()
-            if self.frustum_depth_attr == 'trasnmittance':
-                frustum_features = depth_for_voxel.cumsum(1).reshape(B,N,-1,H,W)
-                canvas_ones = True
-            elif self.frustum_depth_attr == 'reverse_transmittance':
-                frustum_features = depth_for_voxel.cumsum(1).reshape(B,N,-1,H,W)
-                frustum_features = 1 - frustum_features
-                canvas_ones = False
-            else:
-                frustum_features = depth_for_voxel.reshape(B,N,-1,H,W)
-                canvas_ones = False
-            voxel_score = self.frustum_to_voxel(trans_lidar_to_cam, trans_cam_to_img, image_shape, bda_4x4, frustum_features, canvas_ones)
-            
-            img_feats_depthattn = img_feats[:,:,None] * voxel_score[:,None]
-            if self.frustum_depth_residual:
-                img_feats_depthattn = img_feats_depthattn + img_feats[:,:,None]
-            img_feats = self.depth_attn_downsample_conv(img_feats_depthattn)
-            if self.pooling_head:
-                img_feats = img_feats.reshape(B,-1, self.grid_size[0],self.grid_size[1])
-                    
-        outs = self.occ_head(img_feats)
-        occ_preds = self.occ_head.get_occ(outs, img_metas)      # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
+        occ_preds = self.occ_head.simple_test(occ_vox_feats, img_metas_occ)      # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
+        
         return occ_preds
 
     def forward_dummy(self,
@@ -451,7 +446,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         # img_feats: List[(B, C, Dz, Dy, Dx)/(B, C, Dy, Dx) , ]
         # pts_feats: None
         # depth: (B*N_views, D, fH, fW)
-        img_feats, pts_feats, depth, trans_feat = self.extract_feat(
+        img_feats, pts_feats, depth = self.extract_feat(
             points, img_inputs=img_inputs, img_metas=img_metas, **kwargs)
         occ_bev_feature = img_feats[0]
         if self.upsample:
@@ -491,7 +486,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
         """Extract features of images."""
         bev_feat_list = []
         depth_list = []
-        trans_feat_list = []
         key_frame = True  # back propagation for key frame only
 
         for img, sensor2keyego, ego2global, intrin, post_rot, post_tran in zip(
@@ -508,12 +502,12 @@ class BEVDepth4D_MTL(BEVDepth4D):
                 if key_frame:
                     # bev_feat: (B, C, Dy, Dx)
                     # depth: (B*N_views, D, fH, fW)
-                    bev_feat, depth, trans_feat = self.prepare_bev_feat(*inputs_curr)
+                    bev_feat, depth = self.prepare_bev_feat(*inputs_curr)
                     if self.down_sample_for_3d_pooling is not None:
                         bev_feat = self.down_sample_for_3d_pooling(bev_feat)
                 else:
                     with torch.no_grad():
-                        bev_feat, depth, trans_feat = self.prepare_bev_feat(*inputs_curr)
+                        bev_feat, depth = self.prepare_bev_feat(*inputs_curr)
                         if self.down_sample_for_3d_pooling is not None:
                             bev_feat = self.down_sample_for_3d_pooling(bev_feat)
             else:
@@ -522,7 +516,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
                 depth = None
             bev_feat_list.append(bev_feat)
             depth_list.append(depth)
-            trans_feat_list.append(trans_feat)
             key_frame = False
 
         # bev_feat_list: List[(B, C, Dy, Dx), (B, C, Dy, Dx), ...]
@@ -560,13 +553,16 @@ class BEVDepth4D_MTL(BEVDepth4D):
                     ],
                     bda     # (B, 3, 3)
                 )   # (B, C, Dy, Dx)
-
         bev_feat = torch.cat(bev_feat_list, dim=1)      # (B, N_frames*C, Dy, Dx)
         
-        x = self.bev_encoder(bev_feat)
+        det_bev, occ_bev, seg_bev = self.bev_encoder(bev_feat)
+        
+        occ_bev_out = []
+        for b in occ_bev:
+            occ_bev_out.append(b.clone())
+        occ_vox = self.voxelize_module(occ_bev)
 
-        return x, depth_list[0], trans_feat_list[0]
-
+        return [det_bev, occ_bev_out, occ_vox, seg_bev], depth
 
     @force_fp32()
     def bev_encoder(self, x):
@@ -593,7 +589,9 @@ class BEVDepth4D_MTL(BEVDepth4D):
                 seg_bev = occ_bev
             else:
                 seg_bev = det_bev
-            
+
+            if self.bev_neck_deform:
+                det_bev = self.bev_deform_neck(det_bev)
             det_bev = self.img_bev_encoder_neck(det_bev)
             
             if self.occ_bev_encoder_neck is not None:
@@ -610,8 +608,8 @@ class BEVDepth4D_MTL(BEVDepth4D):
 
         if type(det_bev) in [list, tuple]:
             det_bev = det_bev[0]
-        if type(occ_bev) in [list, tuple]:
-            occ_bev = occ_bev[0]
+        # if type(occ_bev) in [list, tuple]:
+        #     occ_bev = occ_bev[0]
         if type(x) in [list, tuple]:
             seg_bev = seg_bev[0]
         return [det_bev, occ_bev, seg_bev]

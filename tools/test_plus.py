@@ -118,6 +118,7 @@ def parse_args():
         default='none',
         help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument('--reparam', action='store_true', help='show results')
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -249,6 +250,28 @@ def main():
     fp16_cfg = cfg.get('fp16', None)
     if fp16_cfg is not None:
         wrap_fp16_model(model)
+        
+    if args.reparam:
+        if hasattr(model.img_backbone.stage0, 'switch_to_deploy'):
+            model.img_backbone.stage0.switch_to_deploy()
+        
+        for i in range(len(model.img_backbone.stage1)):
+            if hasattr(model.img_backbone.stage1[i], 'switch_to_deploy'):
+                model.img_backbone.stage1[i].switch_to_deploy()
+            
+        for i in range(len(model.img_backbone.stage2)):
+            if hasattr(model.img_backbone.stage2[i], 'switch_to_deploy'):
+                model.img_backbone.stage2[i].switch_to_deploy()
+            
+        for i in range(len(model.img_backbone.stage3)):
+            if hasattr(model.img_backbone.stage3[i], 'switch_to_deploy'):
+                model.img_backbone.stage3[i].switch_to_deploy()
+                
+        for i in range(len(model.img_backbone.stage4)):
+            if hasattr(model.img_backbone.stage4[i], 'switch_to_deploy'):
+                model.img_backbone.stage4[i].switch_to_deploy()
+                
+    
     checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
     if args.fuse_conv_bn:
         model = fuse_conv_bn(model)
