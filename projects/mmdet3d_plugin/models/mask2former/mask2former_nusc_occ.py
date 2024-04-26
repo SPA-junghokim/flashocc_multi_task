@@ -193,6 +193,9 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         self.dn_mask_noise_scale = dn_mask_noise_scale
         self.mask_size = mask_size
         self.point_sample_for_dn = point_sample_for_dn
+        self.index_for_debug = 0
+        self.index_for_debug_list = []
+        
         
     def init_weights(self):
         for m in self.decoder_input_projs:
@@ -245,11 +248,8 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
          neg_inds_list) = multi_apply(self._get_target_single, cls_scores_list, mask_preds_list, 
                     gt_labels_list, gt_masks_list, gt_binary_list, img_metas)
 
-        num_total_pos = sum((inds.numel() for inds in pos_inds_list))
-        num_total_neg = sum((inds.numel() for inds in neg_inds_list))
         return (labels_list, label_weights_list, mask_targets_list,
-                mask_weights_list, num_total_pos, num_total_neg)
-
+                mask_weights_list)
     def _get_target_single(self, cls_score, mask_pred, gt_labels, gt_masks, gt_binary,
                     img_metas):
         """Compute classification and mask targets for one image.
@@ -314,6 +314,11 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             point_coords.repeat(num_gts, 1, 1), padding_mode=self.padding_mode).squeeze(1) # torch.Size([100, 50176])
         # mask_points_pred = mask_pred.flatten(1)
         # gt_points_masks = gt_masks.flatten(1)
+        
+        if torch.isnan(cls_score).sum():
+            self.index_for_debug_list.append(self.index_for_debug)
+            print(self.index_for_debug_list)
+            return None, None, None, None, None, None
         assign_result = self.assigner.assign(cls_score, mask_points_pred,
                                              gt_labels, gt_points_masks,
                                              img_metas)
@@ -329,6 +334,9 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         labels[pos_inds] = gt_labels[sampling_result.pos_assigned_gt_inds]
         label_weights = labels.new_ones(self.num_queries).type_as(cls_score)
         class_weights_tensor = torch.tensor(self.class_weight).type_as(cls_score)
+        # import time
+        # time.sleep(0.05)
+        # print()
 
         # mask target
         mask_targets = gt_masks[sampling_result.pos_assigned_gt_inds]
@@ -389,7 +397,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         losses_cls, losses_mask, losses_loavsz, losses_dice, all_point_coords = multi_apply(
             self.loss_single, all_cls_scores, all_mask_preds,
             all_gt_labels_list, all_gt_masks_list, all_gt_binary_list, all_mask_camera, img_metas_list)
-        
+
         loss_dict = dict()
         # loss from the last decoder layer
         loss_dict['loss_cls'] = losses_cls[-1]
@@ -442,7 +450,10 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         
         label_weights = torch.ones_like(gt_labels_list)
         class_weight = cls_scores.new_tensor(self.class_weight)
-        loss_cls = self.loss_cls(cls_scores,gt_labels_list,label_weights,avg_factor=class_weight[gt_labels_list].sum(),)
+        try:
+            loss_cls = self.loss_cls(cls_scores,gt_labels_list,label_weights,avg_factor=class_weight[gt_labels_list].sum(),)
+        except:
+            breakpoint()
 
 
         class_weights_tensor = torch.tensor(self.class_weight).type_as(cls_scores)
@@ -534,12 +545,40 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         mask_preds_list = [mask_preds[i] for i in range(num_imgs)]
         
         (labels_list, label_weights_list, mask_targets_list, mask_weights_list,
-         num_total_pos, num_total_neg) = self.get_targets(cls_scores_list, mask_preds_list, gt_labels_list, 
+         ) = self.get_targets(cls_scores_list, mask_preds_list, gt_labels_list, 
                     gt_masks_list, gt_binary_list, img_metas)
 
         # gt_labels_list : [tensor([ 2,  7, 10, 11, 12, 13, 14, 15, 16, 17], device='cuda:0'), tensor([ 0,  4, 11, 13, 14, 15, 16, 17], device='cuda:0')]
         
         # shape (batch_size, num_queries)
+        # no_none_list = []
+        
+        # new_labels_list = []
+        # new_label_weights_list = []
+        # new_mask_targets_list = []
+        # new_mask_weights_list = []
+        # new_gt_labels_list = []
+        # new_gt_binary_list = []
+        # for i in range(len(labels_list)):
+        #     if labels_list[i] is not None:
+        #         new_labels_list.append(labels_list[i])
+        #         new_label_weights_list.append(label_weights_list[i])
+        #         new_mask_targets_list.append(mask_targets_list[i])
+        #         new_mask_weights_list.append(mask_weights_list[i])
+                
+        #         new_gt_labels_list.append(gt_labels_list[i])
+        #         new_gt_binary_list.append(gt_binary_list[i])
+        #         no_none_list.append(i)
+        #     else:
+        #         self.index_for_debug_list.append(self.index_for_debug)
+        #         print(self.index_for_debug_list)
+        # labels_list = new_labels_list
+        # label_weights_list = new_label_weights_list
+        # mask_targets_list = new_mask_targets_list
+        # mask_weights_list = new_mask_weights_list     
+        # gt_labels_list = new_gt_labels_list
+        # gt_binary_list = new_gt_binary_list
+
         labels = torch.stack(labels_list, dim=0)
         # shape (batch_size, num_queries)
         label_weights = torch.stack(label_weights_list, dim=0)
@@ -550,6 +589,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
 
         # classfication loss
         # shape (batch_size * num_queries, )
+        # cls_scores = cls_scores[no_none_list]
         cls_scores = cls_scores.flatten(0, 1)
         labels = labels.flatten(0, 1)
         label_weights = label_weights.flatten(0, 1)
@@ -569,7 +609,8 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         batch_wise_cls = []
         for i in range(batch_size):
             batch_wise_cls.append(gt_labels_list[i])
-
+        
+        # mask_preds = mask_preds[no_none_list]
         mask_preds = mask_preds[mask_weights > 0] # [14, 200, 200, 16] / [18, 200, 200, 16]
         mask_weights = mask_weights[mask_weights > 0] # 14 100개 중 14개만 1 / 18
         
@@ -668,7 +709,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         mask_pred = torch.einsum('bqc,bcxyz->bqxyz', mask_embed, mask_feature)
 
         ''' 对于一些样本数量较少的类别来说，经过 trilinear 插值 + 0.5 阈值，正样本直接消失 '''
-        
+
         if self.num_transformer_decoder_layers != 0:
             if self.pooling_attn_mask:
                 # however, using max-pooling can save more positive samples, which is quite important for rare classes
@@ -936,25 +977,27 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         cls_pred_list.append(cls_pred)
         mask_pred_list.append(mask_pred)
         
-        B, C, W, H, Z = mask_features.shape
-        attn_mask_target_size = multi_scale_memorys[0].shape[-3:]
-        
-        if self.pooling_attn_mask:
-            attn_mask = F.adaptive_max_pool3d(mask_pred.float(), attn_mask_target_size)
-        else:
-            attn_mask = F.interpolate(mask_pred, attn_mask_target_size, mode='trilinear', align_corners=self.align_corners)
-        attn_mask = attn_mask.flatten(2).detach() # detach the gradients back to mask_pred
-        attn_mask = attn_mask.sigmoid() < 0.5
-        attn_mask = attn_mask.unsqueeze(1).repeat((1, self.num_heads, 1, 1)).flatten(0, 1)
-        if self.dn_enable and self.training:
-            attn_mask=attn_mask.view([batch_size,self.num_heads,-1,attn_mask.shape[-1]])
-            if self.noise_type == 'gt' or self.noise_type == 'point':
-                attn_mask[:,:,:dn_pad_size]=padding_mask
-            else:
-                attn_mask[:,:,:dn_pad_size]=padding_mask_3level[0]
-            attn_mask=attn_mask.flatten(0,1)
+        if self.num_transformer_decoder_layers != 0:
+            B, C, W, H, Z = mask_features.shape
+            attn_mask_target_size = multi_scale_memorys[0].shape[-3:]
             
-
+            if self.pooling_attn_mask:
+                attn_mask = F.adaptive_max_pool3d(mask_pred.float(), attn_mask_target_size)
+            else:
+                attn_mask = F.interpolate(mask_pred, attn_mask_target_size, mode='trilinear', align_corners=self.align_corners)
+            attn_mask = attn_mask.flatten(2).detach() # detach the gradients back to mask_pred
+            attn_mask = attn_mask.sigmoid() < 0.5
+            attn_mask = attn_mask.unsqueeze(1).repeat((1, self.num_heads, 1, 1)).flatten(0, 1)
+            if self.dn_enable and self.training:
+                attn_mask=attn_mask.view([batch_size,self.num_heads,-1,attn_mask.shape[-1]])
+                if self.noise_type == 'gt' or self.noise_type == 'point':
+                    attn_mask[:,:,:dn_pad_size]=padding_mask
+                else:
+                    attn_mask[:,:,:dn_pad_size]=padding_mask_3level[0]
+                attn_mask=attn_mask.flatten(0,1)
+            
+        self.index_for_debug += 1
+        query_list= []
         for i in range(self.num_transformer_decoder_layers):
             level_idx = i % self.num_transformer_feat_level
             attn_mask[torch.where(attn_mask.sum(-1) == attn_mask.shape[-1])] = False
@@ -975,9 +1018,11 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             cls_pred, mask_pred, attn_mask = self.forward_head(
                 query_feat, mask_features, 
                 multi_scale_memorys[(i + 1) % self.num_transformer_feat_level].shape[-3:])
-
+            # if torch.isnan(query_feat).sum():
+            #     breakpoint()
             cls_pred_list.append(cls_pred)
             mask_pred_list.append(mask_pred)
+            query_list.append(query_feat.clone())
             
             if self.dn_enable and self.training:
                 if self.noise_type == 'gt' or self.noise_type == 'point':
