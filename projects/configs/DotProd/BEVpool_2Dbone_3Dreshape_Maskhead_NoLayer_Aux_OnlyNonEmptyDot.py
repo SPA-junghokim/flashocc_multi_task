@@ -65,6 +65,10 @@ if len(range(*multi_adj_frame_id_cfg)) == 0:
 else:
     numC_Trans_cat = numC_Trans
     
+# load_from = './work_dirs/DotProd/BEVpool_2Dbone_3Dreshape_Maskhead_NoLayer_Aux/epoch_24.pth'
+
+only_non_empty_voxel_dot = True
+
 model = dict(
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
@@ -72,10 +76,10 @@ model = dict(
     pc_range = point_cloud_range,
     grid_size = grid_size,
     voxel_out_channels = voxel_out_channels,
-    only_last_layer=False,
+    only_last_layer=True,
     vox_simple_reshape=True,
-    vox_aux_loss_3d=False,
-    
+    vox_aux_loss_3d=True,
+    only_non_empty_voxel_dot = only_non_empty_voxel_dot,
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
         in_dim=voxel_out_channels,
@@ -132,7 +136,7 @@ model = dict(
     
     img_bev_encoder_neck=dict(
         type='Custom_FPN_LSS',
-        only_largest_voxel_feature_used=False,
+        only_largest_voxel_feature_used=True,
         catconv_in_channels1=numC_Trans * 8 + numC_Trans * 4,
         catconv_in_channels2=numC_Trans * 2 + voxel_out_channels * 2,
         outconv_in_channels1=numC_Trans * 8,
@@ -188,7 +192,8 @@ model = dict(
         num_occupancy_classes=num_class,
         pooling_attn_mask=True,
         sample_weight_gamma=0.25,
-        num_transformer_feat_level=3,
+        num_transformer_feat_level=0,
+        only_non_empty_voxel_dot = only_non_empty_voxel_dot,
         # using stand-alone pixel decoder
         positional_encoding=dict(
             type='SinePositionalEncoding3D', num_feats=mask2former_pos_channel, normalize=True),
@@ -196,7 +201,7 @@ model = dict(
         transformer_decoder=dict(
             type='DetrTransformerDecoder_custom',
             return_intermediate=True,
-            num_layers=3,
+            num_layers=0,
             transformerlayers=dict(
                 type='DetrTransformerDecoderLayer',
                 attn_cfgs=dict(
@@ -245,7 +250,7 @@ model = dict(
             oversample_ratio=3.0,
             importance_sample_ratio=0.75,
             assigner=dict(
-                type='MaskHungarianAssigner_occ',
+                type='MaskHungarianAssigner',
                 cls_cost=dict(type='ClassificationCost', weight=2.0),
                 mask_cost=dict(
                     type='CrossEntropyLossCost', weight=5.0, use_sigmoid=True),

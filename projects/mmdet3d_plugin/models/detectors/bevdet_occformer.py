@@ -132,6 +132,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                  bev_deform_backbone=None,
                  bev_deform_neck = None,
                  
+                 only_non_empty_voxel_dot = False,
                  **kwargs):
         super(BEVDetOCC_depthGT_occformer, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
                                              img_bev_encoder_neck=img_bev_encoder_neck,**kwargs)
@@ -212,7 +213,8 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         if self.vox_aux_loss_3d:
             self.vox_aux_loss_3d_occ_head = build_head(vox_aux_loss_3d_occ_head)
         self.aux_test = aux_test
-            
+        
+        self.only_non_empty_voxel_dot = only_non_empty_voxel_dot
             
     def extract_feat(self, points, img_inputs, img_metas, **kwargs):
         """Extract features from images and points."""
@@ -386,15 +388,21 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         B = occ_bev_feats[0].shape[0]
         img_metas = [{"pc_range": self.pc_range, "occ_size":self.grid_size} for i in range(B)]
         
-        loss_occ = self.occ_head.forward_train(occ_vox_feats, img_metas, voxel_semantics, mask_camera, non_vis_semantic_voxel)
+        new_loss_aux_3d, aux_occ_pred = None, None
         
-        if self.vox_aux_loss_3d:
+        if self.vox_aux_loss_3d or self.only_non_empty_voxel_dot:
             aux_occ_pred = self.vox_aux_loss_3d_occ_head(occ_vox_feats[0].permute(0,1,4,2,3))
-            loss_aux_3d = self.vox_aux_loss_3d_occ_head.loss(aux_occ_pred, voxel_semantics, mask_camera,)
-            new_loss_aux_3d = dict()
-            for k, v in loss_aux_3d.items():
-                new_loss_aux_3d[k+'_aux3d'] = v
+            if self.vox_aux_loss_3d:
+                loss_aux_3d = self.vox_aux_loss_3d_occ_head.loss(aux_occ_pred, voxel_semantics, mask_camera,)
+                new_loss_aux_3d = dict()
+                for k, v in loss_aux_3d.items():
+                    new_loss_aux_3d[k+'_aux3d'] = v
+            
+        loss_occ = self.occ_head.forward_train(occ_vox_feats, img_metas, voxel_semantics, mask_camera, non_vis_semantic_voxel, aux_occ_pred)
+        
+        if new_loss_aux_3d is not None:
             loss_occ.update(new_loss_aux_3d)
+            
         return loss_occ
 
     def simple_test(self,
@@ -430,11 +438,15 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         img_metas_occ = [{"pc_range": self.pc_range, "occ_size":self.grid_size} for i in range(B)]
         
         if self.aux_test:
-            aux_occ_pred = self.vox_aux_loss_3d_occ_head(occ_bev_feature[0].permute(0,1,4,2,3))
+            aux_occ_pred = self.vox_aux_loss_3d_occ_head(occ_vox_feats[0].permute(0,1,4,2,3))
             aux_occ_preds = self.vox_aux_loss_3d_occ_head.get_occ(aux_occ_pred, img_metas)      # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
             return aux_occ_preds
+        
+        occ_pred = None
+        if self.only_non_empty_voxel_dot:
+            occ_pred = self.vox_aux_loss_3d_occ_head(occ_vox_feats[0].permute(0,1,4,2,3))
 
-        occ_preds = self.occ_head.simple_test(occ_vox_feats, img_metas_occ)      # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
+        occ_preds = self.occ_head.simple_test(occ_vox_feats, img_metas_occ, occ_pred)      # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
         
         return occ_preds
 
