@@ -207,8 +207,8 @@ class RenderOCCHead2D(BaseModule):
                 bs, Dx, Dy = occ_pred_out.shape[:3]
                 occ_pred_out = occ_pred_out.view(bs, Dx, Dy, self.Dz, self.num_classes+1).contiguous()
                 
-                density_prob = occ_pred_out[..., -2:]
-                semantic = occ_pred_out[..., :-2]
+                density_prob = occ_pred_out[..., -2:].clone()
+                semantic = occ_pred_out[..., :-2].clone()
             else:
                 density_prob = self.density_mlp(occ_pred)
                 semantic = self.semantic_mlp(occ_pred)
