@@ -72,9 +72,9 @@ model = dict(
     pc_range = point_cloud_range,
     grid_size = grid_size,
     voxel_out_channels = voxel_out_channels,
-    only_last_layer=False,
+    only_last_layer=True,
     vox_simple_reshape=True,
-    vox_aux_loss_3d=False,
+    vox_aux_loss_3d=True,
     
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
@@ -126,13 +126,14 @@ model = dict(
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(
-        type='CustomResNet',
+        type='CustomResNet_inc',
+        block_type='Meta',
         numC_input=numC_Trans + numC_Trans_cat,
         num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
     
     img_bev_encoder_neck=dict(
         type='Custom_FPN_LSS',
-        only_largest_voxel_feature_used=False,
+        only_largest_voxel_feature_used=True,
         catconv_in_channels1=numC_Trans * 8 + numC_Trans * 4,
         catconv_in_channels2=numC_Trans * 2 + voxel_out_channels * 2,
         outconv_in_channels1=numC_Trans * 8,
@@ -188,7 +189,7 @@ model = dict(
         num_occupancy_classes=num_class,
         pooling_attn_mask=True,
         sample_weight_gamma=0.25,
-        num_transformer_feat_level=3,
+        num_transformer_feat_level=0,
         # using stand-alone pixel decoder
         positional_encoding=dict(
             type='SinePositionalEncoding3D', num_feats=mask2former_pos_channel, normalize=True),
@@ -196,7 +197,7 @@ model = dict(
         transformer_decoder=dict(
             type='DetrTransformerDecoder_custom',
             return_intermediate=True,
-            num_layers=3,
+            num_layers=0,
             transformerlayers=dict(
                 type='DetrTransformerDecoderLayer',
                 attn_cfgs=dict(
@@ -245,7 +246,7 @@ model = dict(
             oversample_ratio=3.0,
             importance_sample_ratio=0.75,
             assigner=dict(
-                type='MaskHungarianAssigner_occ',
+                type='MaskHungarianAssigner',
                 cls_cost=dict(type='ClassificationCost', weight=2.0),
                 mask_cost=dict(
                     type='CrossEntropyLossCost', weight=5.0, use_sigmoid=True),
