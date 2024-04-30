@@ -133,6 +133,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                  bev_deform_neck = None,
                  
                  only_non_empty_voxel_dot = False,
+                 time_check=False,
                  **kwargs):
         super(BEVDetOCC_depthGT_occformer, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
                                              img_bev_encoder_neck=img_bev_encoder_neck,**kwargs)
@@ -216,6 +217,12 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         
         self.only_non_empty_voxel_dot = only_non_empty_voxel_dot
             
+        self.time_check = time_check
+        if self.time_check:
+            self.start_event = torch.cuda.Event(enable_timing=True)
+            self.end_event = torch.cuda.Event(enable_timing=True)
+            self.time_list = []
+        
     def extract_feat(self, points, img_inputs, img_metas, **kwargs):
         """Extract features from images and points."""
         """
@@ -416,6 +423,8 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                     gt_seg_mask=None,
                     **kwargs):
         
+        if self.time_check:
+            self.start_event.record()
         img_feats, _, depth = self.extract_feat(
             points, img_inputs=img, img_metas=img_metas, **kwargs)
         
@@ -431,6 +440,15 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         if self.seg_head is not None:
             seg_out = self.seg_head(seg_feats)
 
+        if self.time_check:
+            self.end_event.record() 
+            torch.cuda.synchronize()  
+            cur_iter_time = self.start_event.elapsed_time(self.end_event)
+            print(cur_iter_time)
+            self.time_list.append(cur_iter_time)
+            if len(self.time_list ) > 1000:
+                print(sum(self.time_list[500:])/len(self.time_list[500:]))
+                exit()
         return bbox_out, occ_out, voxel_semantics, mask_lidar, mask_camera, seg_out, gt_seg_mask
 
     def simple_test_occ(self, occ_bev_feats, occ_vox_feats, img_metas=None, depth=None, img_inputs=None):

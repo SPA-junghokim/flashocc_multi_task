@@ -676,6 +676,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
 
 
     def forward_head_only_non_empty_vox(self, decoder_out, mask_feature, attn_mask_target_size, occ_pred):
+
         B, W, H, Z, _ = occ_pred.shape
         Q, _ = decoder_out.shape
         non_empty_flag = occ_pred.argmax(-1) != 17
@@ -688,7 +689,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         
         non_zero_mask_pred = torch.einsum('qc,xc->xq', mask_embed, non_zero_feat)
         
-        mask_pred = torch.zeros(B, Q, W, H, Z).to(occ_pred)  # mask_pred를 모두 0으로 초기화
+        mask_pred = torch.zeros(B, Q, W, H, Z).to(non_zero_mask_pred)  # mask_pred를 모두 0으로 초기화
         mask_pred[non_zero[:, 0], :, non_zero[:, 1], non_zero[:, 2], non_zero[:, 3]] = non_zero_mask_pred
 
         if self.num_transformer_decoder_layers != 0:
