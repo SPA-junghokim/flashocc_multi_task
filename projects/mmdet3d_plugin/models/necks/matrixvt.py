@@ -399,8 +399,7 @@ class MatrixVT(LSSViewTransformerBEVDepth):
 
         x = x.view(B * N, C, H, W).contiguous()      # (B*N_views, C, fH, fW)
         
-        x = self.depth_net(x, mlp_input, stereo_metas)      # (B*N_views, D+C_context, fH, fW)
-
+        x, context = self.depth_net(x, mlp_input, stereo_metas)      # (B*N_views, D+C_context, fH, fW)
         with autocast(enabled=False):
             depth_digit = x[:, :self.D, ...]    # (B*N_views, D, fH, fW)
             tran_feat = x[:, self.D:self.D + self.out_channels, ...]    # (B*N_views, C_context, fH, fW)
@@ -410,4 +409,4 @@ class MatrixVT(LSSViewTransformerBEVDepth):
 
 
         # bev_feat, depth = self.view_transform(input, depth, tran_feat)
-        return bev_feat, depth
+        return bev_feat, depth, tran_feat

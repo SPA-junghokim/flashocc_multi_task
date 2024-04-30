@@ -479,19 +479,29 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             min_ida_scale = 1 if min_ida_scale == 0 else min_ida_scale
             self.min_focal_length = min_focal_length * min_ida_scale
         
-        if self.segmentation_loss:
+        # if self.segmentation_loss:
 
+        #     self.class_predictor = nn.Sequential(
+        #     build_conv_layer(cfg=dict(type='DCN',in_channels=self.out_channels, out_channels=self.out_channels * 2 ,kernel_size=3,padding=1,groups=4,im2col_step=128)),
+        #     nn.BatchNorm2d(self.out_channels * 2),
+        #     nn.ReLU(),
+            
+        #     build_conv_layer(cfg=dict(type='DCN',in_channels=self.out_channels * 2, out_channels=self.out_channels * 2 ,kernel_size=3,padding=1,groups=4,im2col_step=128)),
+        #     nn.BatchNorm2d(self.out_channels * 2),
+        #     nn.ReLU(),
+            
+        #     nn.Conv2d(self.out_channels * 2, 18,kernel_size=3,stride=1,padding=1)
+        # )
+        if self.segmentation_loss:
             self.class_predictor = nn.Sequential(
-            build_conv_layer(cfg=dict(type='DCN',in_channels=self.out_channels, out_channels=self.out_channels * 2 ,kernel_size=3,padding=1,groups=4,im2col_step=128)),
-            nn.BatchNorm2d(self.out_channels * 2),
-            nn.ReLU(),
-            
-            build_conv_layer(cfg=dict(type='DCN',in_channels=self.out_channels * 2, out_channels=self.out_channels * 2 ,kernel_size=3,padding=1,groups=4,im2col_step=128)),
-            nn.BatchNorm2d(self.out_channels * 2),
-            nn.ReLU(),
-            
-            nn.Conv2d(self.out_channels * 2, 18,kernel_size=3,stride=1,padding=1)
-        )
+                                            nn.Conv2d(self.out_channels , self.out_channels * 2, kernel_size=3, stride=1, padding=1),
+                                            nn.BatchNorm2d(self.out_channels * 2),
+                                            nn.ReLU(),
+                                            nn.Conv2d(self.out_channels * 2, self.out_channels * 2, kernel_size=3, stride=1, padding=1),
+                                            nn.BatchNorm2d(self.out_channels * 2),
+                                            nn.ReLU(),
+                                            nn.Conv2d(self.out_channels * 2, 18, kernel_size=3, stride=1, padding=1)
+                                            )
         
         self.depth_net = DepthNet(
             in_channels=self.in_channels,
