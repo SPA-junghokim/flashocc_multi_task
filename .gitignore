@@ -22,7 +22,7 @@ data/
 *old*
 build-old
 ppl.cv
-occ_vis
+occ_vis/
 train.sh
 train*.sh
 lidarseg/
