@@ -64,6 +64,7 @@ if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
 else:
     numC_Trans_cat = numC_Trans
+    
 model = dict(
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
@@ -74,7 +75,7 @@ model = dict(
     only_last_layer=True,
     vox_simple_reshape=True,
     vox_aux_loss_3d=True,
-    SA_loss=True,
+    
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
         in_dim=voxel_out_channels,
@@ -94,20 +95,30 @@ model = dict(
     ),
     
     img_backbone=dict(
-        type='ResNet',
-        depth=50,
-        num_stages=4,
+        # type='ResNet',
+        # depth=50,
+        # num_stages=4,
+        # out_indices=(2, 3),
+        # frozen_stages=-1,
+        # norm_cfg=dict(type='BN', requires_grad=True),
+        # norm_eval=False,
+        # with_cp=True,
+        # style='pytorch',
+        # pretrained='torchvision://resnet50',
+        type='RepVGG',
+        pretrained='ckpts/RepVGG-A2-train.pth',
+        num_blocks=[2, 4, 14, 1], 
+        # width_multiplier=[2.,2.,4.,4.], 
+        width_multiplier=[1.5, 1.5, 1.5, 2.75], 
+        override_groups_map=None, 
         out_indices=(2, 3),
-        frozen_stages=-1,
-        norm_cfg=dict(type='BN', requires_grad=True),
-        norm_eval=False,
-        with_cp=True,
-        style='pytorch',
-        pretrained='torchvision://resnet50',
+        deploy=False, 
+        use_checkpoint=False,
     ),
     img_neck=dict(
         type='CustomFPN',
-        in_channels=[1024, 2048],
+        # in_channels=[1024, 2048],
+        in_channels=[384, 1408],
         out_channels=256,
         num_outs=1,
         start_level=0,
@@ -122,7 +133,6 @@ model = dict(
         collapse_z=True,
         downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
-        segmentation_loss=True
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(
@@ -268,7 +278,6 @@ model = dict(
     det_loss_weight = 1,
     occ_loss_weight = 1,
     seg_loss_weight = 1.,
-    SA_loss=True
 )
 
 # Data
@@ -287,7 +296,6 @@ train_pipeline = [
     dict(
         type='PrepareImageInputs',
         is_train=True,
-        load_point_label=True,
         data_config=data_config,
         sequential=True),
     dict(
@@ -306,7 +314,7 @@ train_pipeline = [
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
         type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera','SA_gt_depth', 'SA_gt_semantic'])
+                                'mask_lidar', 'mask_camera'])
 ]
 
 test_pipeline = [
@@ -393,8 +401,8 @@ lr_config = dict(
     warmup='linear',
     warmup_iters=200,
     warmup_ratio=0.001,
-    step=[12, ])
-runner = dict(type='EpochBasedRunner', max_epochs=12)
+    step=[24, ])
+runner = dict(type='EpochBasedRunner', max_epochs=24)
 
 custom_hooks = [
     dict(
@@ -406,8 +414,8 @@ custom_hooks = [
 
 # load_from = "ckpts/bevdet-r50-cbgs.pth"
 # fp16 = dict(loss_scale='dynamic')
-evaluation = dict(interval=3, start=12, pipeline=test_pipeline)
-checkpoint_config = dict(interval=3, max_keep_ckpts=5)
+evaluation = dict(interval=1, start=24, pipeline=test_pipeline)
+checkpoint_config = dict(interval=1, max_keep_ckpts=5)
 
 
 log_config = dict(

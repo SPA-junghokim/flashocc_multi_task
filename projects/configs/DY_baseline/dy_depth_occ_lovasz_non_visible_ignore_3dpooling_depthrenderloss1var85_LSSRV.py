@@ -36,8 +36,9 @@ grid_config = {
 }
 
 voxel_size = [0.1, 0.1, 0.2]
-numC_Trans = 32
 
+numC_Trans = 64
+numC_Trans_pool = 64
 multi_adj_frame_id_cfg = (1, 1, 1)
 
 if len(range(*multi_adj_frame_id_cfg)) == 0:
@@ -73,28 +74,29 @@ model = dict(
         grid_config=grid_config,
         input_size=data_config['input_size'],
         in_channels=256,
-        out_channels=numC_Trans,
+        out_channels=numC_Trans_pool,
         sid=False,
-        collapse_z=False,
+        collapse_z=True,
         downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
-        use_depth_threhold=True,
-        segmentation_loss=True
+        dpeht_render_loss=True,
+        variance_focus=0.85,
+        render_loss_depth_weight=1,
+        depth_loss_ce=True,
+        depth_render_sigmoid=True,
+        LSS_Rendervalue=True 
         ),
+    down_sample_for_3d_pooling=[numC_Trans_pool*16, numC_Trans],
     img_bev_encoder_backbone=dict(
-        type='CustomResNet3D',
-        numC_input=numC_Trans,
-        num_layer=[1, 2, 4],
-        with_cp=False,
-        num_channels=[numC_Trans, numC_Trans*2, numC_Trans*4],
-        stride=[1, 2, 2],
-        backbone_output_ids=[0, 1, 2]),
-    img_bev_encoder_neck=dict(type='LSSFPN3D',
-                              in_channels=numC_Trans*7,
-                              out_channels=numC_Trans),
+        type='CustomResNet',
+        numC_input=numC_Trans + numC_Trans_cat,
+        num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
+    img_bev_encoder_neck=dict(
+        type='FPN_LSS',
+        in_channels=numC_Trans * 8 + numC_Trans * 2,
+        out_channels=256),
     occ_head=dict(
         type='BEVOCCHead2D',
-        channel_down_for_3d=512,
         in_dim=256,
         out_dim=256,
         Dz=16,
@@ -114,7 +116,6 @@ model = dict(
     det_loss_weight = 1,
     occ_loss_weight = 1,
     seg_loss_weight = 1.,
-    SA_loss=True
 )
 
 # Data
@@ -133,7 +134,6 @@ train_pipeline = [
     dict(
         type='PrepareImageInputs',
         is_train=True,
-        load_point_label=True,
         data_config=data_config,
         sequential=True),
     dict(
@@ -152,7 +152,7 @@ train_pipeline = [
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
         type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera', 'SA_gt_depth', 'SA_gt_semantic'])
+                                'mask_lidar', 'mask_camera'])
 ]
 
 test_pipeline = [
@@ -199,6 +199,7 @@ share_data_config = dict(
     modality=input_modality,
     stereo=False,
     filter_empty_gt=False,
+    # img_info_prototype='bevdet4d',
     img_info_prototype='bevdet4d',
     multi_adj_frame_id_cfg=multi_adj_frame_id_cfg,
 )
@@ -221,7 +222,8 @@ data = dict(
         use_valid_flag=True,
         # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
         # and box_type_3d='Depth' in sunrgbd and scannet dataset.
-        box_type_3d='LiDAR'),
+        box_type_3d='LiDAR',
+        ),
     val=test_data_config,
     test=test_data_config
     )
@@ -230,7 +232,7 @@ for key in ['val', 'train', 'test']:
     data[key].update(share_data_config)
 
 # Optimizer
-optimizer = dict(type='AdamW', lr=1e-4, weight_decay=1e-2)
+optimizer = dict(type='AdamW', lr=2e-5, weight_decay=1e-2)
 optimizer_config = dict(grad_clip=dict(max_norm=5, norm_type=2))
 lr_config = dict(
     policy='step',
@@ -252,25 +254,3 @@ custom_hooks = [
 # fp16 = dict(loss_scale='dynamic')
 evaluation = dict(interval=1, start=12, pipeline=test_pipeline)
 checkpoint_config = dict(interval=1, max_keep_ckpts=5)
-
-
-# with det pretrain; use_mask=True; out_dim=256,
-# ===> per class IoU of 6019 samples:
-# ===> others - IoU = 6.74
-# ===> barrier - IoU = 37.65
-# ===> bicycle - IoU = 10.26
-# ===> bus - IoU = 39.55
-# ===> car - IoU = 44.36
-# ===> construction_vehicle - IoU = 14.88
-# ===> motorcycle - IoU = 13.4
-# ===> pedestrian - IoU = 15.79
-# ===> traffic_cone - IoU = 15.38
-# ===> trailer - IoU = 27.44
-# ===> truck - IoU = 31.73
-# ===> driveable_surface - IoU = 78.82
-# ===> other_flat - IoU = 37.98
-# ===> sidewalk - IoU = 48.7
-# ===> terrain - IoU = 52.5
-# ===> manmade - IoU = 37.89
-# ===> vegetation - IoU = 32.24
-# ===> mIoU of 6019 samples: 32.08

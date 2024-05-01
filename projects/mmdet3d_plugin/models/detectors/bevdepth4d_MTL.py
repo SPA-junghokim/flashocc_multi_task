@@ -87,6 +87,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         self.frustum_depth_detach = frustum_depth_detach
         self.frustum_depth_residual = frustum_depth_residual
         self.pooling_head = pooling_head
+        self.SA_loss = SA_loss
         if self.depth_attn is not None:
             self.frustum_to_voxel = builder.build_neck(frustum_to_voxel)
             self.depth_attn_downsample_conv = ConvModule( # 1x1 conv3d 가 빠른지 linear 가 빠른지 비교
@@ -261,7 +262,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
             loss_depth = self.img_view_transformer.get_SA_loss(trans_feat, depth, sa_gt_depth, sa_gt_semantic)
         else:
             loss_depth = self.img_view_transformer.get_depth_loss(gt_depth, depth)
-
         losses.update(loss_depth)
         
         # Get box losses
