@@ -33,6 +33,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
                  detection_backbone=False,
                  detection_neck=False,
                  imgfeat_32x88=False,
+                 SA_loss=False,
                  depth_attn=None,
                  frustum_depth_attr=False,
                  frustum_to_voxel=None,
@@ -72,6 +73,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         self.seg_loss_weight = seg_loss_weight
         self.detection_backbone = detection_backbone
         self.detection_neck = detection_neck
+        self.SA_loss = SA_loss
         
         if img_bev_encoder is not None:
             self.img_bev_encoder = builder.build_backbone(img_bev_encoder)
@@ -85,6 +87,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         self.frustum_depth_detach = frustum_depth_detach
         self.frustum_depth_residual = frustum_depth_residual
         self.pooling_head = pooling_head
+        self.SA_loss = SA_loss
         if self.depth_attn is not None:
             self.frustum_to_voxel = builder.build_neck(frustum_to_voxel)
             self.depth_attn_downsample_conv = ConvModule( # 1x1 conv3d 가 빠른지 linear 가 빠른지 비교
@@ -140,9 +143,9 @@ class BEVDepth4D_MTL(BEVDepth4D):
                 post_trans:  (B, N_views, 3)
                 bda_rot:  (B, 3, 3)
         """
-        img_feats, depth = self.extract_img_feat(img_inputs, img_metas, **kwargs)
+        img_feats, depth, trans_feat = self.extract_img_feat(img_inputs, img_metas, **kwargs)
         pts_feats = None
-        return img_feats, pts_feats, depth
+        return img_feats, pts_feats, depth, trans_feat
 
 
     def image_encoder(self, img, stereo=False):
@@ -162,6 +165,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         if stereo:
             stereo_feat = x[0]
             x = x[1:]
+        # breakpoint()
         if self.with_img_neck:
             if self.imgfeat_32x88:
                 neck_out = self.img_neck(x[1:])
@@ -197,11 +201,11 @@ class BEVDepth4D_MTL(BEVDepth4D):
         x, _ = self.image_encoder(img)      # x: (B, N, C, fH, fW)
         # bev_feat: (B, C * Dz(=1), Dy, Dx)
         # depth: (B * N, D, fH, fW)
-        bev_feat, depth = self.img_view_transformer(
+        bev_feat, depth, trans_feat = self.img_view_transformer(
             [x, sensor2egos, ego2globals, intrin, post_rot, post_tran, bda, mlp_input])
         if self.pre_process:
             bev_feat = self.pre_process_net(bev_feat)[0]    # (B, C, Dy, Dx)
-        return bev_feat, depth
+        return bev_feat, depth, trans_feat
 
     def forward_train(self,
                       points=None,
@@ -245,13 +249,19 @@ class BEVDepth4D_MTL(BEVDepth4D):
         # img_feats: List[(B, C, Dz, Dy, Dx)/(B, C, Dy, Dx) , ]
         # pts_feats: None
         # depth: (B*N_views, D, fH, fW)
-        img_feats, pts_feats, depth = self.extract_feat(
+        img_feats, pts_feats, depth, trans_feat = self.extract_feat(
                 points, img_inputs=img_inputs, img_metas=img_metas, **kwargs)
 
         gt_depth = kwargs['gt_depth']   # (B, N_views, img_H, img_W)
+
         
         losses = dict()
-        loss_depth = self.img_view_transformer.get_depth_loss(gt_depth, depth)
+        if self.SA_loss:
+            sa_gt_depth = kwargs['SA_gt_depth']
+            sa_gt_semantic = kwargs['SA_gt_semantic']
+            loss_depth = self.img_view_transformer.get_SA_loss(trans_feat, depth, sa_gt_depth, sa_gt_semantic)
+        else:
+            loss_depth = self.img_view_transformer.get_depth_loss(gt_depth, depth)
         losses.update(loss_depth)
         
         # Get box losses
@@ -355,7 +365,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         if self.time_check:
             self.start_event.record()
             
-        img_feats, _, depth = self.extract_feat(
+        img_feats, _, depth, trans_feat = self.extract_feat(
             points, img_inputs=img, img_metas=img_metas, **kwargs)
         
         det_feats, occ_feats, seg_feats =  img_feats
@@ -441,7 +451,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         # img_feats: List[(B, C, Dz, Dy, Dx)/(B, C, Dy, Dx) , ]
         # pts_feats: None
         # depth: (B*N_views, D, fH, fW)
-        img_feats, pts_feats, depth = self.extract_feat(
+        img_feats, pts_feats, depth, trans_feat = self.extract_feat(
             points, img_inputs=img_inputs, img_metas=img_metas, **kwargs)
         occ_bev_feature = img_feats[0]
         if self.upsample:
@@ -481,6 +491,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         """Extract features of images."""
         bev_feat_list = []
         depth_list = []
+        trans_feat_list = []
         key_frame = True  # back propagation for key frame only
 
         for img, sensor2keyego, ego2global, intrin, post_rot, post_tran in zip(
@@ -497,12 +508,12 @@ class BEVDepth4D_MTL(BEVDepth4D):
                 if key_frame:
                     # bev_feat: (B, C, Dy, Dx)
                     # depth: (B*N_views, D, fH, fW)
-                    bev_feat, depth = self.prepare_bev_feat(*inputs_curr)
+                    bev_feat, depth, trans_feat = self.prepare_bev_feat(*inputs_curr)
                     if self.down_sample_for_3d_pooling is not None:
                         bev_feat = self.down_sample_for_3d_pooling(bev_feat)
                 else:
                     with torch.no_grad():
-                        bev_feat, depth = self.prepare_bev_feat(*inputs_curr)
+                        bev_feat, depth, trans_feat = self.prepare_bev_feat(*inputs_curr)
                         if self.down_sample_for_3d_pooling is not None:
                             bev_feat = self.down_sample_for_3d_pooling(bev_feat)
             else:
@@ -511,6 +522,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
                 depth = None
             bev_feat_list.append(bev_feat)
             depth_list.append(depth)
+            trans_feat_list.append(trans_feat)
             key_frame = False
 
         # bev_feat_list: List[(B, C, Dy, Dx), (B, C, Dy, Dx), ...]
@@ -553,7 +565,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         
         x = self.bev_encoder(bev_feat)
 
-        return x, depth_list[0]
+        return x, depth_list[0], trans_feat_list[0]
 
 
     @force_fp32()

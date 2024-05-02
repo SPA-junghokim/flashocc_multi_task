@@ -93,6 +93,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
                  dn_mask_noise_scale = 0.2,
                  mask_size=[200,200],
                  point_sample_for_dn= False,
+                 only_non_empty_voxel_dot=False,
                  **kwargs):
         super(AnchorFreeHead, self).__init__(init_cfg)
         
@@ -195,7 +196,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         self.point_sample_for_dn = point_sample_for_dn
         self.index_for_debug = 0
         self.index_for_debug_list = []
-        
+        self.only_non_empty_voxel_dot = only_non_empty_voxel_dot
         
     def init_weights(self):
         for m in self.decoder_input_projs:
@@ -393,7 +394,6 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         all_mask_camera = [mask_camera for _ in range(num_dec_layers)]
         
         img_metas_list = [img_metas for _ in range(num_dec_layers)]
-        
         losses_cls, losses_mask, losses_loavsz, losses_dice, all_point_coords = multi_apply(
             self.loss_single, all_cls_scores, all_mask_preds,
             all_gt_labels_list, all_gt_masks_list, all_gt_binary_list, all_mask_camera, img_metas_list)
@@ -450,10 +450,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         
         label_weights = torch.ones_like(gt_labels_list)
         class_weight = cls_scores.new_tensor(self.class_weight)
-        try:
-            loss_cls = self.loss_cls(cls_scores,gt_labels_list,label_weights,avg_factor=class_weight[gt_labels_list].sum(),)
-        except:
-            breakpoint()
+        loss_cls = self.loss_cls(cls_scores,gt_labels_list,label_weights,avg_factor=class_weight[gt_labels_list].sum(),)
 
 
         class_weights_tensor = torch.tensor(self.class_weight).type_as(cls_scores)
@@ -678,6 +675,36 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         return loss_cls, loss_mask, loss_lovasz, loss_dice, point_coords
 
 
+    def forward_head_only_non_empty_vox(self, decoder_out, mask_feature, attn_mask_target_size, occ_pred):
+
+        B, W, H, Z, _ = occ_pred.shape
+        Q, _ = decoder_out.shape
+        non_empty_flag = occ_pred.argmax(-1) != 17
+        non_zero = torch.nonzero(non_empty_flag) # N,4
+        non_zero_feat = mask_feature.permute(0,2,3,4,1)[non_empty_flag]
+        
+        decoder_out = self.transformer_decoder.post_norm(decoder_out)
+        cls_pred = self.cls_embed(decoder_out.unsqueeze(0).repeat((B,1, 1)))
+        mask_embed = self.mask_embed(decoder_out)
+        
+        non_zero_mask_pred = torch.einsum('qc,xc->xq', mask_embed, non_zero_feat)
+        
+        mask_pred = torch.zeros(B, Q, W, H, Z).to(non_zero_mask_pred)  # mask_pred를 모두 0으로 초기화
+        mask_pred[non_zero[:, 0], :, non_zero[:, 1], non_zero[:, 2], non_zero[:, 3]] = non_zero_mask_pred
+
+        if self.num_transformer_decoder_layers != 0:
+            if self.pooling_attn_mask:
+                attn_mask = F.adaptive_max_pool3d(mask_pred.float(), attn_mask_target_size)
+            else:
+                attn_mask = F.interpolate(mask_pred, attn_mask_target_size, mode='trilinear', align_corners=self.align_corners)
+            attn_mask = attn_mask.flatten(2).detach() # detach the gradients back to mask_pred
+            attn_mask = attn_mask.sigmoid() < 0.5
+            attn_mask = attn_mask.unsqueeze(1).repeat((1, self.num_heads, 1, 1)).flatten(0, 1)
+        else:
+            attn_mask = None 
+            
+        return cls_pred, mask_pred, attn_mask
+
 
     def forward_head(self, decoder_out, mask_feature, attn_mask_target_size):
         """Forward for head part which is called after every decoder layer.
@@ -742,10 +769,11 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             gt_occ,
             mask_camera,
             non_vis_semantic_voxel,
+            occ_pred,
             **kwargs,
         ):
         gt_labels, gt_masks, gt_binaries = self.preprocess_gt(gt_occ, img_metas)
-        all_cls_scores, all_mask_preds, dn_args = self(voxel_feats, img_metas, targets=dict(gt_labels=gt_labels,
+        all_cls_scores, all_mask_preds, dn_args = self(voxel_feats, img_metas, occ_pred, targets=dict(gt_labels=gt_labels,
                                                                                    gt_masks=gt_masks,
                                                                                    gt_binaries= gt_binaries,))
 
@@ -890,6 +918,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
     def forward(self, 
             voxel_feats,
             img_metas,
+            occ_pred,
             targets=None,
             **kwargs,
         ):
@@ -948,8 +977,11 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             
             decoder_inputs.append(decoder_input)
             decoder_positional_encodings.append(decoder_positional_encoding)
-        
-        query_feat = self.query_feat.weight.unsqueeze(1).repeat((1, batch_size, 1))
+            
+        if self.only_non_empty_voxel_dot:
+            query_feat = self.query_feat.weight
+        else:
+            query_feat = self.query_feat.weight.unsqueeze(1).repeat((1, batch_size, 1))
 
         if self.dn_enable == False and self.num_transformer_feat_level != 0:
             query_embed = self.query_embed.weight.unsqueeze(1).repeat((1, batch_size, 1))
@@ -970,9 +1002,12 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         cls_pred_list = []
         mask_pred_list = []
         
-    
-        cls_pred, mask_pred, attn_mask = self.forward_head(query_feat, 
-                    mask_features, multi_scale_memorys[0].shape[-3:])
+        if self.only_non_empty_voxel_dot:
+            cls_pred, mask_pred, attn_mask = self.forward_head_only_non_empty_vox(query_feat, 
+                        mask_features, multi_scale_memorys[0].shape[-3:], occ_pred)
+        else:
+            cls_pred, mask_pred, attn_mask = self.forward_head(query_feat, 
+                        mask_features, multi_scale_memorys[0].shape[-3:])
 
         cls_pred_list.append(cls_pred)
         mask_pred_list.append(mask_pred)
@@ -1018,8 +1053,6 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             cls_pred, mask_pred, attn_mask = self.forward_head(
                 query_feat, mask_features, 
                 multi_scale_memorys[(i + 1) % self.num_transformer_feat_level].shape[-3:])
-            # if torch.isnan(query_feat).sum():
-            #     breakpoint()
             cls_pred_list.append(cls_pred)
             mask_pred_list.append(mask_pred)
             query_list.append(query_feat.clone())
@@ -1057,6 +1090,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
     def simple_test(self, 
             voxel_feats,
             img_metas,
+            occ_pred,
             **kwargs,
         ):
         """Test without augmentaton.
@@ -1075,7 +1109,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             - mask_pred_results (Tensor): Mask logits, shape \
                 (batch_size, num_queries, h, w).
         """
-        all_cls_scores, all_mask_preds, _ = self(voxel_feats, img_metas)
+        all_cls_scores, all_mask_preds, _ = self(voxel_feats, img_metas, occ_pred)
         mask_cls_results = all_cls_scores[-1]
         mask_pred_results = all_mask_preds[-1]
         

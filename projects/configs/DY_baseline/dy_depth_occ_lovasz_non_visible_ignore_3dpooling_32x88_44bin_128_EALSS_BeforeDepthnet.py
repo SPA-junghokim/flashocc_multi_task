@@ -65,9 +65,10 @@ model = dict(
         style='pytorch',
         pretrained='torchvision://resnet50',
     ),
+    imgfeat_32x88 = True,
     img_neck=dict(
         type='CustomFPN',
-        in_channels=[512, 1024, 2048],
+        in_channels=[1024, 2048],
         out_channels=128,
         num_outs=1,
         start_level=0,

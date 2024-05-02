@@ -1,0 +1,5 @@
+# ninja log v5
+0	414	1714487098927204834	/mnt/hdd2/project/flashocc_multi_task/build/temp.linux-x86_64-3.8/projects/mmdet3d_plugin/ops/average_voxel_pooling_v2/src/average_voxel_pooling_forward_cuda.o	78c4e340f596dafe
+0	10818	1714487109327484311	/mnt/hdd2/project/flashocc_multi_task/build/temp.linux-x86_64-3.8/projects/mmdet3d_plugin/ops/average_voxel_pooling_v2/src/average_voxel_pooling_forward.o	6b8d73a210c5d365
+1	285	1714487339785688939	/mnt/hdd2/project/flashocc_multi_task/build/temp.linux-x86_64-3.8/projects/mmdet3d_plugin/ops/average_voxel_pooling_v2/src/average_voxel_pooling_forward_cuda.o	78c4e340f596dafe
+1	11587	1714487351085993665	/mnt/hdd2/project/flashocc_multi_task/build/temp.linux-x86_64-3.8/projects/mmdet3d_plugin/ops/average_voxel_pooling_v2/src/average_voxel_pooling_forward.o	6b8d73a210c5d365
