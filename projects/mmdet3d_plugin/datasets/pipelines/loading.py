@@ -132,11 +132,45 @@ class PrepareImageInputs(object):
     def img_transform_core(self, img, resize_dims, crop, flip, rotate):
         # adjust image
         img = img.resize(resize_dims)
-        img = img.crop(crop)
+        img = img.crop(crop) 
         if flip:
             img = img.transpose(method=Image.FLIP_LEFT_RIGHT)
         img = img.rotate(rotate)
         return img
+
+    def point_label_transform(self, point_label, resize, resize_dims, crop, flip, rotate):
+        H, W = resize_dims
+        point_label[:, :2] = point_label[:, :2] * resize
+        point_label[:, 0] -= crop[0]
+        point_label[:, 1] -= crop[1]
+        if flip:
+            point_label[:, 0] = resize_dims[1] - point_label[:, 0]
+
+        point_label[:, 0] -= W / 2.0
+        point_label[:, 1] -= H / 2.0
+
+        h = rotate / 180 * np.pi
+        rot_matrix = [
+            [np.cos(h), np.sin(h)],
+            [-np.sin(h), np.cos(h)],
+        ]
+        point_label[:, :2] = np.matmul(rot_matrix, point_label[:, :2].T).T
+
+        point_label[:, 0] += W / 2.0
+        point_label[:, 1] += H / 2.0
+
+        coords = point_label[:, :2].astype(np.int16)
+
+        depth_map = np.zeros(resize_dims)
+        valid_mask = ((coords[:, 1] < resize_dims[0])
+                    & (coords[:, 0] < resize_dims[1])
+                    & (coords[:, 1] >= 0)
+                    & (coords[:, 0] >= 0))
+        depth_map[coords[valid_mask, 1],coords[valid_mask, 0]] = point_label[valid_mask, 2]
+        semantic_map = np.zeros(resize_dims)
+        # semantic_map[coords[valid_mask, 1],coords[valid_mask, 0]] = (point_label[valid_mask, 3] >= 0)
+        semantic_map[coords[valid_mask, 1],coords[valid_mask, 0]] = point_label[valid_mask, 3]
+        return torch.Tensor(depth_map), torch.Tensor(semantic_map)
 
     def get_rot(self, h):
         return torch.Tensor([
@@ -162,8 +196,7 @@ class PrepareImageInputs(object):
             post_tran: Tensor (2, )
         """
         # adjust image
-        img = self.img_transform_core(img, resize_dims, crop, flip, rotate)
-
+        img = self.img_transform_core(img, resize_dims, crop, flip, rotate) # 900x1600 -> 256x704
         # post-homography transformation
         # 将上述变换以矩阵表示.
         post_rot *= resize
@@ -254,7 +287,6 @@ class PrepareImageInputs(object):
             # 获取当前相机的sensor2ego(4x4), ego2global(4x4)矩阵.
             sensor2ego, ego2global = \
                 self.get_sensor_transforms(results['curr'], cam_name)
-
             # image view augmentation (resize, crop, horizontal flip, rotate)
             img_augs = self.sample_augmentation(
                 H=img.height, W=img.width, flip=flip, scale=scale)
@@ -288,7 +320,6 @@ class PrepareImageInputs(object):
 
             canvas.append(np.array(img))    # 保存未归一化的图像，应该是为了做可视化.
             imgs.append(self.normalize_img(img))
-
             if self.sequential:
                 assert 'adjacent' in results
                 for adj_info in results['adjacent']:
@@ -343,6 +374,7 @@ class PrepareImageInputs(object):
     def __call__(self, results):
         results['img_inputs'] = self.get_inputs(results)
         return results
+
 
 
 @PIPELINES.register_module()

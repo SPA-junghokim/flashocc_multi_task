@@ -41,7 +41,6 @@ def make_cuda_ext(name,
         define_macros=define_macros,
         extra_compile_args=extra_compile_args)
 
-
 if __name__ == '__main__':
     setup(
         name='flashocc_plugin',
@@ -49,7 +48,6 @@ if __name__ == '__main__':
                      'for general 3D object detection.'),
         long_description_content_type='text/markdown',
         author='MMDetection3D Contributors',
-        author_email='zwwdev@gmail.com',
         keywords='computer vision, 3D object detection',
         url='https://github.com/open-mmlab/mmdetection3d',
         classifiers=[
@@ -80,6 +78,12 @@ if __name__ == '__main__':
                     "src/bev_pool.cpp",
                     "src/bev_pool_cuda.cu"
                 ],
+            ),
+            make_cuda_ext(
+            name='average_voxel_pooling_ext',
+            module='mmdet3d_plugin.ops.average_voxel_pooling_v2',
+            sources=['src/average_voxel_pooling_forward.cpp',
+                     'src/average_voxel_pooling_forward_cuda.cu'],
             ),
         ],
         cmdclass={'build_ext': BuildExtension},

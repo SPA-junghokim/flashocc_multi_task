@@ -78,6 +78,7 @@ model = dict(
         collapse_z=False,
         downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
+        use_depth_threhold=True,
         segmentation_loss=True
         ),
     img_bev_encoder_backbone=dict(
