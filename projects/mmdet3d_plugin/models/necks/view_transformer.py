@@ -1165,28 +1165,13 @@ class CRN_LSS(LSSViewTransformer):
         gt_depths[gt_depths > self.grid_config['depth'][1]] = 0
 
         B, N, H, W = gt_semantics.shape
-        if self.PV_type == "SA_default":
-            gt_semantics = gt_semantics.view(
-                B * N,
-                H // self.downsample,
-                self.downsample,
-                W // self.downsample,
-                self.downsample,
-                1,
-            )
-            gt_semantics = gt_semantics.permute(0, 1, 3, 5, 2, 4).contiguous()
-            gt_semantics = gt_semantics.view(-1, self.downsample * self.downsample)
-            gt_semantics = torch.max(gt_semantics, dim=-1).values
-            gt_semantics = gt_semantics.view(B * N, H // self.downsample, W // self.downsample)
-            # gt_semantics = F.one_hot(gt_semantics.long(), num_classes=18).view(-1, 18).float()
-        elif self.PV_type == "class_freq":
-            num_classes = 18
-            one_hot = torch.nn.functional.one_hot(gt_semantics.to(torch.int64), num_classes=num_classes)
-            one_hot = one_hot.view(B, N, H // self.downsample, self.downsample, W // self.downsample, self.downsample, num_classes)
-            class_counts = one_hot.sum(dim=(3, 5))
-            class_counts[..., 0] = 0
-            _, most_frequent_classes = class_counts.max(dim=-1)
-            gt_semantics = most_frequent_classes.view(B * N, H // self.downsample, W // self.downsample)
+        num_classes = 18
+        one_hot = torch.nn.functional.one_hot(gt_semantics.to(torch.int64), num_classes=num_classes)
+        one_hot = one_hot.view(B, N, H // self.downsample, self.downsample, W // self.downsample, self.downsample, num_classes)
+        class_counts = one_hot.sum(dim=(3, 5))
+        class_counts[..., 0] = 0
+        _, most_frequent_classes = class_counts.max(dim=-1)
+        gt_semantics = most_frequent_classes.view(B * N, H // self.downsample, W // self.downsample)
         # gt_semantics = F.one_hot(gt_semantics.long(), num_classes=18).view(-1, 18).float()
         gt_semantics = F.one_hot(gt_semantics.long(), num_classes=18).permute(0,3,1,2).float().contiguous()
 
