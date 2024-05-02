@@ -514,7 +514,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                         nn.Conv2d(self.out_channels * 2, self.out_channels * 2, kernel_size=3, stride=1, padding=1),
                         nn.BatchNorm2d(self.out_channels * 2),
                         nn.ReLU(),
-                        nn.Conv2d(self.out_channels * 2, 18, kernel_size=3, stride=1, padding=1)
+                        nn.Conv2d(self.out_channels * 2, 18, kernel_size=1, stride=1)
                         )
             
         self.depth_render_sigmoid = depth_render_sigmoid

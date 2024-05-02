@@ -326,7 +326,7 @@ train_pipeline = [
         file_client_args=file_client_args),
     dict(
         type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera','SA_gt_depth', 'SA_gt_semantic'])
+                                'mask_lidar', 'mask_camera', 'SA_gt_depth', 'SA_gt_semantic'])
 ]
 
 test_pipeline = [
