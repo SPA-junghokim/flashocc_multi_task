@@ -431,7 +431,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         if self.pts_bbox_head is not None:
             bbox_pts = self.simple_test_pts([det_feats], img_metas, rescale=rescale)
             bbox_out = [dict(pts_bbox=bbox_pts[0])]
-            
+
         if self.occ_head is not None:
             occ_out = self.simple_test_occ(occ_bev_feats, occ_vox_feats, img_metas, depth, img)    # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
     

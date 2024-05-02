@@ -70,9 +70,9 @@ else:
 only_non_empty_voxel_dot = True
 
 model = dict(
+    type='BEVDetOCC_depthGT_occformer',
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
-    type='BEVDetOCC_depthGT_occformer',
     pc_range = point_cloud_range,
     grid_size = grid_size,
     voxel_out_channels = voxel_out_channels,
