@@ -623,12 +623,12 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         
         self.BEV_feat_before_encoder = bev_feat
 
-        det_bev, occ_bev, seg_bev = self.bev_encoder(bev_feat)
-        
+        det_bev, occ_bev, seg_bev = self.bev_encoder(bev_feat) # (B, 48, 200, 200) / (B, 48, 200, 200) x 4 / (B, 48, 200, 200) x 4
+        # breakpoint()
         occ_bev_out = []
         for b in occ_bev:
             occ_bev_out.append(b.clone())
-        occ_vox = self.voxelize_module(occ_bev)
+        occ_vox = self.voxelize_module(occ_bev) # (B, 48, 200, 200, 16) & (B, 48, 200, 200) x 3
 
         return [det_bev, occ_bev_out, occ_vox, seg_bev], depth, trans_feat_list[0]
 
