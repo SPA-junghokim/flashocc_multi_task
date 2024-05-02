@@ -1034,7 +1034,8 @@ class CRN_LSS(LSSViewTransformer):
     def __init__(self, loss_depth_weight=3.0, loss_semantic_weight=3.0, depthnet_cfg=dict(), virtual_depth=False, 
                  dpeht_render_loss=False, variance_focus=0.85, render_loss_depth_weight=1,
                  depth_loss_ce = True, depth_loss_focal=False, context_residual=False,
-                 depth_render_sigmoid=False, segmentation_loss=False, loss_segmentation_weight=1, use_depth_threhold=False, depth_threshold=1,LSS_Rendervalue=False, **kwargs):
+                 depth_render_sigmoid=False, segmentation_loss=False, loss_segmentation_weight=1, use_depth_threhold=False, 
+                 PV_type="SA_default", depth_threshold=1,LSS_Rendervalue=False, **kwargs):
         super(CRN_LSS, self).__init__(**kwargs)
         self.loss_depth_weight = loss_depth_weight
         self.loss_semantic_weight = loss_semantic_weight
@@ -1056,6 +1057,7 @@ class CRN_LSS(LSSViewTransformer):
             self.loss_depth_weight = 10    
 
         if self.segmentation_loss:
+            self.PV_type = PV_type
             self.class_predictor = nn.Sequential(
                                             nn.Conv2d(self.out_channels , self.out_channels * 2, kernel_size=3, stride=1, padding=1),
                                             nn.BatchNorm2d(self.out_channels * 2),
@@ -1298,18 +1300,28 @@ class CRN_LSS(LSSViewTransformer):
         gt_depths[gt_depths > self.grid_config['depth'][1]] = 0
 
         B, N, H, W = gt_semantics.shape
-        gt_semantics = gt_semantics.view(
-            B * N,
-            H // self.downsample,
-            self.downsample,
-            W // self.downsample,
-            self.downsample,
-            1,
-        )
-        gt_semantics = gt_semantics.permute(0, 1, 3, 5, 2, 4).contiguous()
-        gt_semantics = gt_semantics.view(-1, self.downsample * self.downsample)
-        gt_semantics = torch.max(gt_semantics, dim=-1).values
-        gt_semantics = gt_semantics.view(B * N, H // self.downsample, W // self.downsample)
+        if self.PV_type == "SA_default":
+            gt_semantics = gt_semantics.view(
+                B * N,
+                H // self.downsample,
+                self.downsample,
+                W // self.downsample,
+                self.downsample,
+                1,
+            )
+            gt_semantics = gt_semantics.permute(0, 1, 3, 5, 2, 4).contiguous()
+            gt_semantics = gt_semantics.view(-1, self.downsample * self.downsample)
+            gt_semantics = torch.max(gt_semantics, dim=-1).values
+            gt_semantics = gt_semantics.view(B * N, H // self.downsample, W // self.downsample)
+            # gt_semantics = F.one_hot(gt_semantics.long(), num_classes=18).view(-1, 18).float()
+        elif self.PV_type == "class_freq":
+            num_classes = 18
+            one_hot = torch.nn.functional.one_hot(gt_semantics.to(torch.int64), num_classes=num_classes)
+            one_hot = one_hot.view(B, N, H // self.downsample, self.downsample, W // self.downsample, self.downsample, num_classes)
+            class_counts = one_hot.sum(dim=(3, 5))
+            class_counts[..., 0] = 0
+            _, most_frequent_classes = class_counts.max(dim=-1)
+            gt_semantics = most_frequent_classes.view(B * N, H // self.downsample, W // self.downsample)
         # gt_semantics = F.one_hot(gt_semantics.long(), num_classes=18).view(-1, 18).float()
         gt_semantics = F.one_hot(gt_semantics.long(), num_classes=18).permute(0,3,1,2).float().contiguous()
 
@@ -1438,6 +1450,66 @@ class CRN_LSS(LSSViewTransformer):
                     ).sum() / max(1.0, fg_mask.sum())
             depth_loss_dict['loss_depth'] = self.loss_depth_weight * depth_loss
         
+        return depth_loss_dict
+    
+    @force_fp32()
+    def get_depth_loss(self, gt_depth, depth_preds):
+        """
+            Args:
+                depth_labels: (B, N_views, img_h, img_w)
+                depth_preds: (B*N_views, D, fH, fW)
+            Returns:
+        """
+        depth_loss_dict = dict()
+        depth_labels_value, depth_labels = self.get_downsampled_gt_depth(gt_depth)      # (B*N_views*fH*fW, D)
+        
+        if self.dpeht_render_loss:
+            C, num_bins, feature_h, feature_w= depth_preds.shape
+            depth_bin_linspace = torch.arange(self.D)
+            frustum_distance_bin = depth_bin_linspace.repeat(C, feature_h, feature_w, 1).permute(0, 3, 1, 2).contiguous().to(self.depth_feat)
+            # transmittance = (self.grid_config['depth'][2] * depth_preds).cumsum(1)
+            # depth_pred_rendered = (transmittance*(1-torch.exp(-self.grid_config['depth'][2] * depth_preds))).sum(1)
+            if self.LSS_Rendervalue:
+                transmittance=self.transmittance
+                depth_pred_rendered=(self.rendering_value*frustum_distance_bin).sum(1)
+            else:
+                if self.depth_render_sigmoid:
+                    transmittance = torch.exp(-(self.grid_config['depth'][2] * 2 * self.depth_feat.sigmoid()).cumsum(1))
+                    depth_pred_rendered = (transmittance*(1-torch.exp(-self.grid_config['depth'][2] * 2 * self.depth_feat.sigmoid()))*frustum_distance_bin).sum(1)
+                else:
+                    transmittance = torch.exp(-(self.grid_config['depth'][2] * 2 * self.depth_feat.softmax(dim=1)).cumsum(1))
+                    depth_pred_rendered = (transmittance*(1-torch.exp(-self.grid_config['depth'][2] * 2 * self.depth_feat.softmax(dim=1)))*frustum_distance_bin).sum(1)
+            
+            fg_mask = depth_labels_value > 0.0
+            log_d = torch.log(depth_pred_rendered[fg_mask]) - torch.log(depth_labels_value[fg_mask])
+            depth_render_loss = torch.sqrt((log_d ** 2).mean() - self.variance_focus * (log_d.mean() ** 2))
+            depth_render_loss = depth_render_loss * self.render_loss_depth_weight
+            depth_loss_dict['loss_depth_render'] = depth_render_loss
+            
+        if self.depth_loss_ce:
+            if self.depth_loss_focal:
+                depth_preds = self.depth_feat
+                depth_labels_value = depth_labels_value.view(-1)
+                fg_mask = depth_labels_value > 0.0
+                depth_preds = depth_preds.permute(0, 2, 3, 1).contiguous().view(-1, self.D)
+                depth_labels_value = depth_labels_value[fg_mask]
+                depth_preds = depth_preds[fg_mask]
+                depth_loss = self.depth_focalloss(depth_preds, depth_labels_value.long())
+            else:
+                # (B*N_views, D, fH, fW) --> (B*N_views, fH, fW, D) --> (B*N_views*fH*fW, D)
+                depth_preds = depth_preds.permute(0, 2, 3, 1).contiguous().view(-1, self.D)
+                fg_mask = torch.max(depth_labels, dim=1).values > 0.0
+                depth_labels = depth_labels[fg_mask]
+                depth_preds = depth_preds[fg_mask]
+                with autocast(enabled=False):
+                    depth_loss = F.binary_cross_entropy(
+                        depth_preds,
+                        depth_labels,
+                        reduction='none',
+                    ).sum() / max(1.0, fg_mask.sum())
+            depth_loss_dict['loss_depth'] = self.loss_depth_weight * depth_loss
+            
+            
         return depth_loss_dict
     
 @NECKS.register_module()

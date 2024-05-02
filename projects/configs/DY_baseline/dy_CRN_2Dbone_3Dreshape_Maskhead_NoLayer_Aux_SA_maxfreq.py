@@ -74,7 +74,6 @@ model = dict(
     only_last_layer=True,
     vox_simple_reshape=True,
     vox_aux_loss_3d=True,
-    
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
         in_dim=voxel_out_channels,
@@ -120,6 +119,8 @@ model = dict(
         out_channels=numC_Trans_pool,
         sid=False,
         downsample=16,
+        segmentation_loss=True,
+        PV_type="class_freq",
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(
@@ -265,6 +266,7 @@ model = dict(
     det_loss_weight = 1,
     occ_loss_weight = 1,
     seg_loss_weight = 1.,
+    SA_loss=True
 )
 
 # Data
