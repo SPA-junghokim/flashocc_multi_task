@@ -137,6 +137,10 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                  BEV_out_channel=None,
 
                  only_non_empty_voxel_dot = False,
+                 
+                 bevseg_loss_weight=3.0, 
+                 pos_weight=4.0, 
+                 
                  time_check=False,
                  **kwargs):
         super(BEVDetOCC_depthGT_occformer, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
@@ -166,8 +170,11 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                     nn.Conv2d(self.BEV_out_channel * 2, self.BEV_out_channel, kernel_size=3, stride=1, padding=1),
                     nn.BatchNorm2d(self.BEV_out_channel),
                     nn.ReLU(),
-                    nn.Conv2d(self.BEV_out_channel, 18, kernel_size=3, stride=1, padding=1)
+                    nn.Conv2d(self.BEV_out_channel, 18, kernel_size=1, stride=1, padding=0)
                 )
+            self.bevseg_loss_weight = bevseg_loss_weight
+            self.bevseg_loss = torch.nn.BCEWithLogitsLoss(pos_weight=torch.Tensor([pos_weight]))
+        
         
         if self.down_sample_for_3d_pooling is not None:
             self.down_sample_for_3d_pooling = \
@@ -257,7 +264,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         """
         img_feats, depth, trans_feat = self.extract_img_feat(img_inputs, img_metas, **kwargs)
         pts_feats = None
-        return img_feats, pts_feats, depth, trans_feat 
+        return img_feats, pts_feats, depth, trans_feat
 
 
     def image_encoder(self, img, stereo=False):
@@ -406,16 +413,18 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
 
 
         if self.BEVseg_loss:
-            pred_bev = self.BEVseg(self.BEV_feat_before_encoder).permute(0,2,3,1)
-            #[4, 18, 200, 200]
+            breakpoint()
+            pred_bev = self.BEVseg(occ_bev_feats[0]).permute(0,2,3,1)
             masked_semantics_gt = torch.where(mask_camera, voxel_semantics, torch.tensor(17).to(voxel_semantics))
             class_ids = torch.arange(18).reshape(1, 1, 1, 18).to(masked_semantics_gt)
             gt_bev = torch.any(masked_semantics_gt.unsqueeze(-1) == class_ids, dim=3)
-
-            loss_bevseg = self.img_view_transformer.get_bevseg_loss(gt_bev, pred_bev)
-            losses.update(loss_bevseg)
+            
+            loss_bevseg = self.bevseg_loss(pred_bev, gt_bev.float())
+            losses['loss_BEV_AUX'] = loss_bevseg * self.bevseg_loss_weight
+            
         return losses
 
+    
     def forward_occ_train(self, occ_bev_feats, occ_vox_feats, voxel_semantics, mask_camera, non_vis_semantic_voxel, img_inputs, depth, **kwargs):
         """
         Args:
@@ -621,8 +630,6 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                 )   # (B, C, Dy, Dx)
         bev_feat = torch.cat(bev_feat_list, dim=1)      # (B, N_frames*C, Dy, Dx)
         
-        self.BEV_feat_before_encoder = bev_feat
-
         det_bev, occ_bev, seg_bev = self.bev_encoder(bev_feat) # (B, 48, 200, 200) / (B, 48, 200, 200) x 4 / (B, 48, 200, 200) x 4
         # breakpoint()
         occ_bev_out = []
