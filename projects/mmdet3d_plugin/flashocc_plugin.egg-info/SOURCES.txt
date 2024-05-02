@@ -1,0 +1,8 @@
+setup.py
+flashocc_plugin.egg-info/PKG-INFO
+flashocc_plugin.egg-info/SOURCES.txt
+flashocc_plugin.egg-info/dependency_links.txt
+flashocc_plugin.egg-info/not-zip-safe
+flashocc_plugin.egg-info/top_level.txt
+ops/average_voxel_pooling_v2/src/average_voxel_pooling_forward.cpp
+ops/average_voxel_pooling_v2/src/average_voxel_pooling_forward_cuda.cu

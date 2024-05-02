@@ -42,6 +42,17 @@ grid_config_3dpool = {
     'depth': [1.0, 45.0, 0.5],
 }
 
+learning_map = {
+                1: 0,   5: 0,   7: 0,   8: 0,
+                10: 0,  11: 0,  13: 0,  19: 0,
+                20: 0,  0: 0,   29: 0,  31: 0,
+                9: 1,   14: 2,  15: 3,  16: 3,
+                17: 4,  18: 5,  21: 6,  2: 7,
+                3: 7,   4: 7,   6: 7,   12: 8,
+                22: 9,  23: 10, 24: 11, 25: 12,
+                26: 13, 27: 14, 28: 15, 30: 16,
+}
+
 voxel_size = [0.1, 0.1, 0.2]
 grid_size = [200, 200, 16]
 numC_Trans = 64
@@ -64,7 +75,6 @@ if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
 else:
     numC_Trans_cat = numC_Trans
-    
 model = dict(
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
@@ -75,7 +85,6 @@ model = dict(
     only_last_layer=True,
     vox_simple_reshape=True,
     vox_aux_loss_3d=True,
-    SA_loss=True,
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
         in_dim=voxel_out_channels,
@@ -269,6 +278,7 @@ model = dict(
     det_loss_weight = 1,
     occ_loss_weight = 1,
     seg_loss_weight = 1.,
+    SA_loss=True
 )
 
 # Data
@@ -287,7 +297,7 @@ train_pipeline = [
     dict(
         type='PrepareImageInputs',
         is_train=True,
-        load_point_label=True,
+        # load_point_label=True,
         data_config=data_config,
         sequential=True),
     dict(
@@ -305,8 +315,18 @@ train_pipeline = [
     dict(type='PointToMultiViewDepth', downsample=1, grid_config=grid_config),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
+        type='LoadLidarsegFromFile',
+        grid_config=grid_config,
+        occupancy_root="./data/nuscenes/pc_panoptic/",
+        learning_map=learning_map,
+        label_from='panoptic',
+        coord_type='LIDAR',
+        load_dim=5,
+        use_dim=5,
+        file_client_args=file_client_args),
+    dict(
         type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera','SA_gt_depth', 'SA_gt_semantic'])
+                                'mask_lidar', 'mask_camera', 'SA_gt_depth', 'SA_gt_semantic'])
 ]
 
 test_pipeline = [

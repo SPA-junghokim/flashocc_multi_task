@@ -33,6 +33,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
                  detection_backbone=False,
                  detection_neck=False,
                  imgfeat_32x88=False,
+                 SA_loss=False,
                  depth_attn=None,
                  frustum_depth_attr=False,
                  frustum_to_voxel=None,
@@ -40,7 +41,6 @@ class BEVDepth4D_MTL(BEVDepth4D):
                  frustum_depth_residual=False,
                  pooling_head = False,
                  time_check=False,
-                 SA_loss=False,
                  **kwargs):
         super(BEVDepth4D_MTL, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
                                              img_bev_encoder_neck=img_bev_encoder_neck,**kwargs)
@@ -73,6 +73,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         self.seg_loss_weight = seg_loss_weight
         self.detection_backbone = detection_backbone
         self.detection_neck = detection_neck
+        self.SA_loss = SA_loss
         
         if img_bev_encoder is not None:
             self.img_bev_encoder = builder.build_backbone(img_bev_encoder)
@@ -164,6 +165,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
         if stereo:
             stereo_feat = x[0]
             x = x[1:]
+        # breakpoint()
         if self.with_img_neck:
             if self.imgfeat_32x88:
                 neck_out = self.img_neck(x[1:])
@@ -251,6 +253,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
                 points, img_inputs=img_inputs, img_metas=img_metas, **kwargs)
 
         gt_depth = kwargs['gt_depth']   # (B, N_views, img_H, img_W)
+
         
         losses = dict()
         if self.SA_loss:

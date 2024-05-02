@@ -6,12 +6,15 @@ import numpy as np
 import torch
 from PIL import Image
 from pyquaternion import Quaternion
+from copy import deepcopy
 
 from mmdet3d.core.points import BasePoints, get_points_type
 from mmdet.datasets.pipelines import LoadAnnotations, LoadImageFromFile
 from mmdet3d.core.bbox import LiDARInstance3DBoxes
 from mmdet3d.datasets.builder import PIPELINES
 from torchvision.transforms.functional import rotate
+
+from mmdet3d.datasets.pipelines import LoadPointsFromFile
 
 
 def mmlabNormalize(img):
@@ -132,11 +135,45 @@ class PrepareImageInputs(object):
     def img_transform_core(self, img, resize_dims, crop, flip, rotate):
         # adjust image
         img = img.resize(resize_dims)
-        img = img.crop(crop)
+        img = img.crop(crop) 
         if flip:
             img = img.transpose(method=Image.FLIP_LEFT_RIGHT)
         img = img.rotate(rotate)
         return img
+
+    def point_label_transform(self, point_label, resize, resize_dims, crop, flip, rotate):
+        H, W = resize_dims
+        point_label[:, :2] = point_label[:, :2] * resize
+        point_label[:, 0] -= crop[0]
+        point_label[:, 1] -= crop[1]
+        if flip:
+            point_label[:, 0] = resize_dims[1] - point_label[:, 0]
+
+        point_label[:, 0] -= W / 2.0
+        point_label[:, 1] -= H / 2.0
+
+        h = rotate / 180 * np.pi
+        rot_matrix = [
+            [np.cos(h), np.sin(h)],
+            [-np.sin(h), np.cos(h)],
+        ]
+        point_label[:, :2] = np.matmul(rot_matrix, point_label[:, :2].T).T
+
+        point_label[:, 0] += W / 2.0
+        point_label[:, 1] += H / 2.0
+
+        coords = point_label[:, :2].astype(np.int16)
+
+        depth_map = np.zeros(resize_dims)
+        valid_mask = ((coords[:, 1] < resize_dims[0])
+                    & (coords[:, 0] < resize_dims[1])
+                    & (coords[:, 1] >= 0)
+                    & (coords[:, 0] >= 0))
+        depth_map[coords[valid_mask, 1],coords[valid_mask, 0]] = point_label[valid_mask, 2]
+        semantic_map = np.zeros(resize_dims)
+        # semantic_map[coords[valid_mask, 1],coords[valid_mask, 0]] = (point_label[valid_mask, 3] >= 0)
+        semantic_map[coords[valid_mask, 1],coords[valid_mask, 0]] = point_label[valid_mask, 3]
+        return torch.Tensor(depth_map), torch.Tensor(semantic_map)
 
     def get_rot(self, h):
         return torch.Tensor([
@@ -162,8 +199,7 @@ class PrepareImageInputs(object):
             post_tran: Tensor (2, )
         """
         # adjust image
-        img = self.img_transform_core(img, resize_dims, crop, flip, rotate)
-
+        img = self.img_transform_core(img, resize_dims, crop, flip, rotate) # 900x1600 -> 256x704
         # post-homography transformation
         # 将上述变换以矩阵表示.
         post_rot *= resize
@@ -254,7 +290,6 @@ class PrepareImageInputs(object):
             # 获取当前相机的sensor2ego(4x4), ego2global(4x4)矩阵.
             sensor2ego, ego2global = \
                 self.get_sensor_transforms(results['curr'], cam_name)
-
             # image view augmentation (resize, crop, horizontal flip, rotate)
             img_augs = self.sample_augmentation(
                 H=img.height, W=img.width, flip=flip, scale=scale)
@@ -288,7 +323,6 @@ class PrepareImageInputs(object):
 
             canvas.append(np.array(img))    # 保存未归一化的图像，应该是为了做可视化.
             imgs.append(self.normalize_img(img))
-
             if self.sequential:
                 assert 'adjacent' in results
                 for adj_info in results['adjacent']:
@@ -343,6 +377,7 @@ class PrepareImageInputs(object):
     def __call__(self, results):
         results['img_inputs'] = self.get_inputs(results)
         return results
+
 
 
 @PIPELINES.register_module()
@@ -608,3 +643,173 @@ class LoadOccGTFromFile(object):
         results['non_vis_semantic_voxel'] = non_vis_semantic_voxel
 
         return results
+    
+    
+@PIPELINES.register_module()
+class LoadLidarsegFromFile(LoadPointsFromFile):
+    def __init__(self, grid_config, occupancy_root='data/nuscenes/occupancy/', learning_map=None, label_from='lidarseg',
+                 downsample=1, **kwargs):
+        super(LoadLidarsegFromFile, self).__init__(**kwargs)
+        self.occupancy_root = occupancy_root
+        self.learning_map = learning_map
+        self.label_from = label_from
+        self.grid_config = grid_config
+        self.downsample = downsample
+        
+        max_class_id = max(max(self.learning_map.keys()), max(self.learning_map.values()))
+        self.lookup_tensor = torch.arange(max_class_id + 1)
+        for k, v in self.learning_map.items():
+            self.lookup_tensor[k] = v
+        self.batch_size = 500
+
+    def _load_points(self, pts_filename):
+        """Private function to load point clouds data.
+
+        Args:
+            pts_filename (str): Filename of point clouds data.
+
+        Returns:
+            np.ndarray: An array containing point clouds data.
+        """
+        if self.file_client is None:
+            self.file_client = mmcv.FileClient(**self.file_client_args)
+        try:
+            pts_bytes = self.file_client.get(pts_filename)
+            points = np.frombuffer(pts_bytes, dtype=np.float16)
+        except ConnectionError:
+            mmcv.check_file_exist(pts_filename)
+            if pts_filename.endswith('.npy'):
+                points = np.load(pts_filename)
+            else:
+                points = np.fromfile(pts_filename, dtype=np.float16)
+
+        return points
+    
+    def points2depthmap_segmap(self, points, height, width):
+        """
+        Args:
+            points: (N_points, 5):  3: (u, v, d, distance, class)
+            height: int
+            width: int
+
+        Returns:
+            depth_map：(H, W)
+        """
+        height, width = height // self.downsample, width // self.downsample
+        depth_map = torch.zeros((height, width), dtype=torch.float32)
+        seg_map = torch.zeros((height, width), dtype=torch.float32)
+        coor = torch.round(points[:, :2] / self.downsample)     # (N_points, 2)  2: (u, v)
+        depth = points[:, 2]    # (N_points, )哦
+        seg = points[:, 4]
+        kept1 = (coor[:, 0] >= 0) & (coor[:, 0] < width) & (
+            coor[:, 1] >= 0) & (coor[:, 1] < height) & (
+                depth < self.grid_config['depth'][1]) & (
+                    depth >= self.grid_config['depth'][0])
+        # 获取有效投影点.
+        coor, depth, seg = coor[kept1], depth[kept1], seg[kept1]    # (N, 2), (N, )
+        ranks = coor[:, 0] + coor[:, 1] * width
+        sort = (ranks + depth / 100.).argsort()
+        coor, depth, ranks, seg = coor[sort], depth[sort], ranks[sort] ,seg[sort]
+        
+        kept2 = torch.ones(coor.shape[0], device=coor.device, dtype=torch.bool)
+        kept2[1:] = (ranks[1:] != ranks[:-1])
+        coor, depth, seg = coor[kept2], depth[kept2], seg[kept2]
+        coor = coor.to(torch.long)
+        depth_map[coor[:, 1], coor[:, 0]] = depth
+        seg_map[coor[:, 1], coor[:, 0]] = seg
+        return depth_map, seg_map
+
+
+    def __call__(self, results):
+        pts_filename = results['pts_filename']
+        pts_filename = self.occupancy_root + pts_filename.split("/")[-1]
+        points = self._load_points(pts_filename)
+        if self.label_from == 'panoptic':
+            points = points.reshape(self.load_dim, -1).transpose(1,0)
+        else:
+            points = points.reshape(-1, self.load_dim)
+        points = points[:, self.use_dim]
+        attribute_dims = None
+
+        points_class = get_points_type(self.coord_type)
+        points = points_class(
+            points, points_dim=points.shape[-1], attribute_dims=attribute_dims)
+
+        # classes = points[:, 4]
+        # breakpoint()
+        # for start_idx in range(0, classes.shape[0], self.batch_size):
+        #     end_idx = min(start_idx + self.batch_size, classes.shape[0])
+        #     batch_classes = classes[start_idx:end_idx]
+        #     points[start_idx:end_idx, 4] = self.lookup_tensor[batch_classes]
+        np_points = np.array(points.tensor)
+        classes = np_points[:, 4]
+        np_points[:, 4] = self.lookup_tensor[classes]
+        lidarseg_points = torch.Tensor(np_points)
+        
+        aug_lidarseg_points = deepcopy(lidarseg_points)
+        depth_map_list=[]
+        seg_map_list=[]
+        imgs, sensor2egos, ego2globals, intrins = results['img_inputs'][:4]
+        post_rots, post_trans, bda = results['img_inputs'][4:]
+        for cid in range(len(results['cam_names'])):
+            cam_name = results['cam_names'][cid]    # CAM_TYPE
+            # 猜测liadr和cam不是严格同步的，因此lidar_ego和cam_ego可能会不一致.
+            # 因此lidar-->cam的路径不采用:   lidar --> ego --> cam
+            # 而是： lidar --> lidar_ego --> global --> cam_ego --> cam
+            lidar2lidarego = np.eye(4, dtype=np.float32)
+            lidar2lidarego[:3, :3] = Quaternion(
+                results['curr']['lidar2ego_rotation']).rotation_matrix
+            lidar2lidarego[:3, 3] = results['curr']['lidar2ego_translation']
+            lidar2lidarego = torch.from_numpy(lidar2lidarego)
+
+            lidarego2global = np.eye(4, dtype=np.float32)
+            lidarego2global[:3, :3] = Quaternion(
+                results['curr']['ego2global_rotation']).rotation_matrix
+            lidarego2global[:3, 3] = results['curr']['ego2global_translation']
+            lidarego2global = torch.from_numpy(lidarego2global)
+
+            cam2camego = np.eye(4, dtype=np.float32)
+            cam2camego[:3, :3] = Quaternion(
+                results['curr']['cams'][cam_name]
+                ['sensor2ego_rotation']).rotation_matrix
+            cam2camego[:3, 3] = results['curr']['cams'][cam_name][
+                'sensor2ego_translation']
+            cam2camego = torch.from_numpy(cam2camego)
+
+            camego2global = np.eye(4, dtype=np.float32)
+            camego2global[:3, :3] = Quaternion(
+                results['curr']['cams'][cam_name]
+                ['ego2global_rotation']).rotation_matrix
+            camego2global[:3, 3] = results['curr']['cams'][cam_name][
+                'ego2global_translation']
+            camego2global = torch.from_numpy(camego2global)
+
+            cam2img = np.eye(4, dtype=np.float32)
+            cam2img = torch.from_numpy(cam2img)
+            cam2img[:3, :3] = intrins[cid]
+
+            # lidar --> lidar_ego --> global --> cam_ego --> cam
+            lidar2cam = torch.inverse(camego2global.matmul(cam2camego)).matmul(
+                lidarego2global.matmul(lidar2lidarego))
+            lidar2img = cam2img.matmul(lidar2cam)
+            
+            points_img = lidarseg_points[:, :3].matmul(lidar2img[:3, :3].T) + lidar2img[:3, 3].unsqueeze(0)     # (N_points, 3)  3: (ud, vd, d)
+            points_img = torch.cat(
+                [points_img[:, :2] / points_img[:, 2:3], points_img[:, 2:3]],
+                1)      # (N_points, 3):  3: (u, v, d)
+
+            # 再考虑图像增广
+            points_img = points_img.matmul(post_rots[cid].T) + post_trans[cid:cid + 1, :]      # (N_points, 3):  3: (u, v, d)
+            aug_lidarseg_points[:,:3] = points_img
+            depth_map,seg_map = self.points2depthmap_segmap(aug_lidarseg_points,
+                                                            imgs.shape[2],     # H
+                                                            imgs.shape[3]      # W
+                                                            )
+            depth_map_list.append(depth_map)
+            seg_map_list.append(seg_map)
+        depth_map = torch.stack(depth_map_list)
+        seg_map = torch.stack(seg_map_list)
+        results['SA_gt_depth'] = depth_map
+        results['SA_gt_semantic'] = seg_map
+        return results
+            

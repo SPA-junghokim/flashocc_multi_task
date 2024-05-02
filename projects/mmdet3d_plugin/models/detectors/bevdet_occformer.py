@@ -12,6 +12,7 @@ from copy import deepcopy
 from mmcv.runner import force_fp32
 from mmdet3d.models import builder
 import time
+from torch.cuda.amp.autocast_mode import autocast
 
 class voxelize_module(nn.Module):
     def __init__(
@@ -133,7 +134,14 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                  bev_deform_neck = None,
                  
                  SA_loss=False,
+                 BEVseg_loss=False,
+                 BEV_out_channel=None,
+                 BEVseg_loss_mode='softmax',
+                 bevseg_loss_weight=3.0, 
+                 
                  only_non_empty_voxel_dot = False,
+                 
+                 time_check=False,
                  **kwargs):
         super(BEVDetOCC_depthGT_occformer, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
                                              img_bev_encoder_neck=img_bev_encoder_neck,**kwargs)
@@ -150,7 +158,22 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
             
         self.upsample = upsample
         self.down_sample_for_3d_pooling = down_sample_for_3d_pooling
-        self.SA_loss = SA_loss      
+        self.SA_loss = SA_loss
+        self.BEVseg_loss = BEVseg_loss
+
+        if self.BEVseg_loss:
+            self.BEV_out_channel=BEV_out_channel
+            self.BEVseg = nn.Sequential(
+                    nn.Conv2d(self.BEV_out_channel, self.BEV_out_channel * 2, kernel_size=3, padding=1),
+                    nn.BatchNorm2d(self.BEV_out_channel * 2),
+                    nn.ReLU(),
+                    nn.Conv2d(self.BEV_out_channel * 2, self.BEV_out_channel, kernel_size=3, stride=1, padding=1),
+                    nn.BatchNorm2d(self.BEV_out_channel),
+                    nn.ReLU(),
+                    nn.Conv2d(self.BEV_out_channel, 17, kernel_size=1, stride=1, padding=0)
+                )
+            self.bevseg_loss_weight = bevseg_loss_weight
+            self.BEVseg_loss_mode = BEVseg_loss_mode
         
         if self.down_sample_for_3d_pooling is not None:
             self.down_sample_for_3d_pooling = \
@@ -218,6 +241,12 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         
         self.only_non_empty_voxel_dot = only_non_empty_voxel_dot
             
+        self.time_check = time_check
+        if self.time_check:
+            self.start_event = torch.cuda.Event(enable_timing=True)
+            self.end_event = torch.cuda.Event(enable_timing=True)
+            self.time_list = []
+        
     def extract_feat(self, points, img_inputs, img_metas, **kwargs):
         """Extract features from images and points."""
         """
@@ -380,9 +409,44 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
             for k, v in losses_seg.items():
                 loss_weight[k] = v * self.seg_loss_weight
             losses.update(loss_weight)
-        
+
+
+        if self.BEVseg_loss:
+            bev_preds = self.BEVseg(occ_bev_feats[0]).permute(0,3,2,1)
+            masked_semantics_gt = torch.where(mask_camera, voxel_semantics, torch.tensor(17).to(voxel_semantics))
+            
+            if self.BEVseg_loss_mode == 'softmax':
+                bev_preds=bev_preds.softmax(-1)
+                B,H,W,Z = masked_semantics_gt.shape
+                bev_values = torch.full((B,H,W), 17, dtype=masked_semantics_gt.dtype, device=masked_semantics_gt.device)
+                for z in range(Z):
+                    mask = masked_semantics_gt[:,:,:,z] != 17 
+                    bev_values[mask] = masked_semantics_gt[:,:,:,z][mask] 
+                oh_bev_semantic = F.one_hot(bev_values.long(), num_classes=18).float()[..., :17]
+                
+            elif self.BEVseg_loss_mode == 'sigmoid':
+                bev_preds = bev_preds.sigmoid()
+                oh_voxel_semantics = F.one_hot(masked_semantics_gt.long(), num_classes=18).float()
+                oh_bev_semantic = oh_voxel_semantics.sum(3).bool().float()[..., :17]
+                
+            bev_preds = bev_preds.reshape(-1,17)
+            bev_labels = oh_bev_semantic.reshape(-1, 17)
+            
+            fg_mask = torch.max(bev_labels, dim=1).values > 0.0
+            bev_labels = bev_labels[fg_mask]
+            bev_preds = bev_preds[fg_mask]
+            with autocast(enabled=False):
+                bev_seg_loss = F.binary_cross_entropy(
+                    bev_preds,
+                    bev_labels,
+                    reduction='none',
+                ).sum() / max(1.0, fg_mask.sum())
+            
+            losses['loss_BEV_AUX'] = bev_seg_loss * self.bevseg_loss_weight
+            
         return losses
 
+    
     def forward_occ_train(self, occ_bev_feats, occ_vox_feats, voxel_semantics, mask_camera, non_vis_semantic_voxel, img_inputs, depth, **kwargs):
         """
         Args:
@@ -423,6 +487,9 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                     gt_seg_mask=None,
                     **kwargs):
         
+        if self.time_check:
+            self.start_event.record()
+            
         img_feats, _, depth, trans_feat = self.extract_feat(
             points, img_inputs=img, img_metas=img_metas, **kwargs)
         
@@ -438,6 +505,15 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         if self.seg_head is not None:
             seg_out = self.seg_head(seg_feats)
 
+        if self.time_check:
+            self.end_event.record() 
+            torch.cuda.synchronize()  
+            cur_iter_time = self.start_event.elapsed_time(self.end_event)
+            print(cur_iter_time)
+            self.time_list.append(cur_iter_time)
+            if len(self.time_list ) > 1000:
+                print(sum(self.time_list[500:])/len(self.time_list[500:]))
+                exit()
         return bbox_out, occ_out, voxel_semantics, mask_lidar, mask_camera, seg_out, gt_seg_mask
 
     def simple_test_occ(self, occ_bev_feats, occ_vox_feats, img_metas=None, depth=None, img_inputs=None):
@@ -576,12 +652,12 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                 )   # (B, C, Dy, Dx)
         bev_feat = torch.cat(bev_feat_list, dim=1)      # (B, N_frames*C, Dy, Dx)
         
-        det_bev, occ_bev, seg_bev = self.bev_encoder(bev_feat)
-        
+        det_bev, occ_bev, seg_bev = self.bev_encoder(bev_feat) # (B, 48, 200, 200) / (B, 48, 200, 200) x 4 / (B, 48, 200, 200) x 4
+        # breakpoint()
         occ_bev_out = []
         for b in occ_bev:
             occ_bev_out.append(b.clone())
-        occ_vox = self.voxelize_module(occ_bev)
+        occ_vox = self.voxelize_module(occ_bev) # (B, 48, 200, 200, 16) & (B, 48, 200, 200) x 3
 
         return [det_bev, occ_bev_out, occ_vox, seg_bev], depth, trans_feat_list[0]
 
