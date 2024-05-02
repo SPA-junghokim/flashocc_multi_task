@@ -727,18 +727,13 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         gt_depths[gt_depths > self.grid_config['depth'][1]] = 0
 
         B, N, H, W = gt_semantics.shape
-        gt_semantics = gt_semantics.view(
-            B * N,
-            H // self.downsample,
-            self.downsample,
-            W // self.downsample,
-            self.downsample,
-            1,
-        )
-        gt_semantics = gt_semantics.permute(0, 1, 3, 5, 2, 4).contiguous()
-        gt_semantics = gt_semantics.view(-1, self.downsample * self.downsample)
-        gt_semantics = torch.max(gt_semantics, dim=-1).values
-        gt_semantics = gt_semantics.view(B * N, H // self.downsample, W // self.downsample)
+        num_classes = 18
+        one_hot = torch.nn.functional.one_hot(gt_semantics.to(torch.int64), num_classes=num_classes)
+        one_hot = one_hot.view(B, N, H // self.downsample, self.downsample, W // self.downsample, self.downsample, num_classes)
+        class_counts = one_hot.sum(dim=(3, 5))
+        class_counts[..., 0] = 0
+        _, most_frequent_classes = class_counts.max(dim=-1)
+        gt_semantics = most_frequent_classes.view(B * N, H // self.downsample, W // self.downsample)
         # gt_semantics = F.one_hot(gt_semantics.long(), num_classes=18).view(-1, 18).float()
         gt_semantics = F.one_hot(gt_semantics.long(), num_classes=18).permute(0,3,1,2).float().contiguous()
 
@@ -900,7 +895,7 @@ class CRN_LSS(LSSViewTransformer):
                  dpeht_render_loss=False, variance_focus=0.85, render_loss_depth_weight=1,
                  depth_loss_ce = True, depth_loss_focal=False, context_residual=False,
                  depth_render_sigmoid=False, segmentation_loss=False, loss_segmentation_weight=1, use_depth_threhold=False, 
-                 PV_type="SA_default", depth_threshold=1,LSS_Rendervalue=False, **kwargs):
+                 depth_threshold=1,LSS_Rendervalue=False, **kwargs):
         super(CRN_LSS, self).__init__(**kwargs)
         self.loss_depth_weight = loss_depth_weight
         self.loss_semantic_weight = loss_semantic_weight
@@ -922,16 +917,15 @@ class CRN_LSS(LSSViewTransformer):
             self.loss_depth_weight = 10    
 
         if self.segmentation_loss:
-            self.PV_type = PV_type
             self.class_predictor = nn.Sequential(
-                                nn.Conv2d(self.out_channels , self.out_channels * 2, kernel_size=3, stride=1, padding=1),
-                                nn.BatchNorm2d(self.out_channels * 2),
-                                nn.ReLU(),
-                                nn.Conv2d(self.out_channels * 2, self.out_channels * 2, kernel_size=3, stride=1, padding=1),
-                                nn.BatchNorm2d(self.out_channels * 2),
-                                nn.ReLU(),
-                                nn.Conv2d(self.out_channels * 2, 18, kernel_size=3, stride=1, padding=1)
-                                )
+                        nn.Conv2d(self.out_channels , self.out_channels * 2, kernel_size=3, stride=1, padding=1),
+                        nn.BatchNorm2d(self.out_channels * 2),
+                        nn.ReLU(),
+                        nn.Conv2d(self.out_channels * 2, self.out_channels * 2, kernel_size=3, stride=1, padding=1),
+                        nn.BatchNorm2d(self.out_channels * 2),
+                        nn.ReLU(),
+                        nn.Conv2d(self.out_channels * 2, 18, kernel_size=1, stride=1)
+                        )
         
         self.depth_net = CRN_DepthNet(
             in_channels=self.in_channels,
