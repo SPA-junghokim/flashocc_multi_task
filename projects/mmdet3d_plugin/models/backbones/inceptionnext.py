@@ -9,6 +9,7 @@ from timm.models.helpers import checkpoint_seq
 from timm.models.layers import trunc_normal_, DropPath
 from timm.models.registry import register_model
 from timm.models.layers.helpers import to_2tuple
+import logging
 
 from mmdet3d.models import BACKBONES
 import torch.utils.checkpoint as checkpoint
@@ -59,30 +60,6 @@ class ConvMlp(nn.Module):
         x = self.fc2(x)
         return x
 
-
-class MlpHead(nn.Module):
-    """ MLP classification head
-    """
-    def __init__(self, dim, num_classes=1000, mlp_ratio=3, act_layer=nn.GELU,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), drop=0., bias=True):
-        super().__init__()
-        hidden_features = int(mlp_ratio * dim)
-        self.fc1 = nn.Linear(dim, hidden_features, bias=bias)
-        self.act = act_layer()
-        self.norm = norm_layer(hidden_features)
-        self.fc2 = nn.Linear(hidden_features, num_classes, bias=bias)
-        self.drop = nn.Dropout(drop)
-
-    def forward(self, x):
-        x = x.mean((2, 3)) # global average pooling
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.norm(x)
-        x = self.drop(x)
-        x = self.fc2(x)
-        return x
-
-
 class MetaNeXtBlock(nn.Module):
     """ MetaNeXtBlock Block
     Args:
@@ -101,10 +78,10 @@ class MetaNeXtBlock(nn.Module):
             act_layer=nn.GELU,
             ls_init_value=1e-6,
             drop_path=0.,
-            
+            mixer_kernel_size=11,
     ):
         super().__init__()
-        self.token_mixer = token_mixer(dim)
+        self.token_mixer = token_mixer(dim, band_kernel_size=mixer_kernel_size)
         self.norm = norm_layer(dim)
         self.mlp = mlp_layer(dim, int(mlp_ratio * dim), act_layer=act_layer)
         self.gamma = nn.Parameter(ls_init_value * torch.ones(dim)) if ls_init_value else None
@@ -245,9 +222,12 @@ class MetaNeXt(nn.Module):
         self.num_features = prev_chs
         self.apply(self._init_weights)
         if pretrained:
-            state_dict = torch.hub.load_state_dict_from_url(
-            url='https://github.com/sail-sg/inceptionnext/releases/download/model/inceptionnext_tiny.pth', map_location="cpu", check_hash=True)
-            self.load_state_dict(state_dict, strict=False)
+            logger = logging.getLogger()
+            from mmcv.runner import load_checkpoint
+            load_checkpoint(self, 'ckpt/inceptionnext_tiny.pth', strict=False, logger=logger)
+            # state_dict = torch.hub.load_state_dict_from_url(
+            # url='https://github.com/sail-sg/inceptionnext/releases/download/model/inceptionnext_tiny.pth', map_location="cpu", check_hash=True)
+            # self.load_state_dict(state_dict, strict=False)
         
     @torch.jit.ignore
     def set_grad_checkpointing(self, enable=True):
