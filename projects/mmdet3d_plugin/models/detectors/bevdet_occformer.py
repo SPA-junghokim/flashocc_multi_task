@@ -12,6 +12,7 @@ from copy import deepcopy
 from mmcv.runner import force_fp32
 from mmdet3d.models import builder
 import time
+from torch.cuda.amp.autocast_mode import autocast
 
 class voxelize_module(nn.Module):
     def __init__(
@@ -135,11 +136,10 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                  SA_loss=False,
                  BEVseg_loss=False,
                  BEV_out_channel=None,
-
-                 only_non_empty_voxel_dot = False,
-                 
+                 BEVseg_loss_mode='softmax',
                  bevseg_loss_weight=3.0, 
-                 pos_weight=4.0, 
+                 
+                 only_non_empty_voxel_dot = False,
                  
                  time_check=False,
                  **kwargs):
@@ -170,11 +170,10 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                     nn.Conv2d(self.BEV_out_channel * 2, self.BEV_out_channel, kernel_size=3, stride=1, padding=1),
                     nn.BatchNorm2d(self.BEV_out_channel),
                     nn.ReLU(),
-                    nn.Conv2d(self.BEV_out_channel, 18, kernel_size=1, stride=1, padding=0)
+                    nn.Conv2d(self.BEV_out_channel, 17, kernel_size=1, stride=1, padding=0)
                 )
             self.bevseg_loss_weight = bevseg_loss_weight
-            self.bevseg_loss = torch.nn.BCEWithLogitsLoss(pos_weight=torch.Tensor([pos_weight]))
-        
+            self.BEVseg_loss_mode = BEVseg_loss_mode
         
         if self.down_sample_for_3d_pooling is not None:
             self.down_sample_for_3d_pooling = \
@@ -413,14 +412,37 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
 
 
         if self.BEVseg_loss:
-            breakpoint()
-            pred_bev = self.BEVseg(occ_bev_feats[0]).permute(0,2,3,1)
+            bev_preds = self.BEVseg(occ_bev_feats[0]).permute(0,3,2,1)
             masked_semantics_gt = torch.where(mask_camera, voxel_semantics, torch.tensor(17).to(voxel_semantics))
-            class_ids = torch.arange(18).reshape(1, 1, 1, 18).to(masked_semantics_gt)
-            gt_bev = torch.any(masked_semantics_gt.unsqueeze(-1) == class_ids, dim=3)
             
-            loss_bevseg = self.bevseg_loss(pred_bev, gt_bev.float())
-            losses['loss_BEV_AUX'] = loss_bevseg * self.bevseg_loss_weight
+            if self.BEVseg_loss_mode == 'softmax':
+                bev_preds=bev_preds.softmax(-1)
+                B,H,W,Z = masked_semantics_gt.shape
+                bev_values = torch.full((B,H,W), 17, dtype=masked_semantics_gt.dtype, device=masked_semantics_gt.device)
+                for z in range(Z):
+                    mask = masked_semantics_gt[:,:,:,z] != 17 
+                    bev_values[mask] = masked_semantics_gt[:,:,:,z][mask] 
+                oh_bev_semantic = F.one_hot(bev_values.long(), num_classes=18).float()[..., :17]
+                
+            elif self.BEVseg_loss_mode == 'sigmoid':
+                bev_preds = bev_preds.sigmoid()
+                oh_voxel_semantics = F.one_hot(masked_semantics_gt.long(), num_classes=18).float()
+                oh_bev_semantic = oh_voxel_semantics.sum(3).bool().float()[..., :17]
+                
+            bev_preds = bev_preds.reshape(-1,17)
+            bev_labels = oh_bev_semantic.reshape(-1, 17)
+            
+            fg_mask = torch.max(bev_labels, dim=1).values > 0.0
+            bev_labels = bev_labels[fg_mask]
+            bev_preds = bev_preds[fg_mask]
+            with autocast(enabled=False):
+                bev_seg_loss = F.binary_cross_entropy(
+                    bev_preds,
+                    bev_labels,
+                    reduction='none',
+                ).sum() / max(1.0, fg_mask.sum())
+            
+            losses['loss_BEV_AUX'] = bev_seg_loss * self.bevseg_loss_weight
             
         return losses
 

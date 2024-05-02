@@ -77,6 +77,7 @@ model = dict(
     vox_aux_loss_3d=True,
     BEVseg_loss=True,
     BEV_out_channel=voxel_out_channels,
+    BEVseg_loss_mode='softmax',
     
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
