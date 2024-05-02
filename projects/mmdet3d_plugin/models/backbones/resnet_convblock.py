@@ -3,10 +3,11 @@
 import torch.utils.checkpoint as checkpoint
 from torch import nn
 
+import torch.nn.functional as F
 from mmcv.cnn.bricks.conv_module import ConvModule
 from mmdet.models.backbones.resnet import BasicBlock, Bottleneck
 from mmdet3d.models import BACKBONES
-from .inceptionnext import MetaNeXtBlock, MetaNeXtStage
+from .convnext import ConvNeXtBlock
 
 class LayerNorm2d(nn.LayerNorm):
     """LayerNorm on channels for 2d images.
@@ -33,7 +34,7 @@ class LayerNorm2d(nn.LayerNorm):
 
 
 @BACKBONES.register_module()
-class CustomResNet_inc(nn.Module):
+class CustomResNet_conv(nn.Module):
     def __init__(
             self,
             numC_input,
@@ -44,9 +45,8 @@ class CustomResNet_inc(nn.Module):
             norm_cfg=dict(type='BN'),
             with_cp=False,
             block_type='Basic',
-            mixer_kernel_size=11,
     ):
-        super(CustomResNet_inc, self).__init__()
+        super(CustomResNet_conv, self).__init__()
         # build backbone
         assert len(num_layer) == len(stride)
         num_channels = [numC_input*2**(i+1) for i in range(len(num_layer))] \
@@ -73,17 +73,24 @@ class CustomResNet_inc(nn.Module):
                                     downsample=nn.Conv2d(curr_numC, num_channels[i], 3, stride[i], 1),
                                     norm_cfg=norm_cfg)]
                 curr_numC = num_channels[i]
-                layer.extend([MetaNeXtBlock(dim=curr_numC, drop_path=0.1, mlp_ratio=3, mixer_kernel_size=mixer_kernel_size) for _ in range(num_layer[i] - 1)])
+                layer.extend([ConvNeXtBlock(in_channels=curr_numC, 
+                                            mlp_ratio=3, drop_path_rate=0.1) for _ in range(num_layer[i] - 1)])
                 layers.append(nn.Sequential(*layer))
-        elif block_type == 'Meta':
+        elif block_type == 'Conv':
             curr_numC = numC_input
             for i in range(len(num_layer)):
-                layer = MetaNeXtStage(
-                    in_chs=curr_numC, out_chs=num_channels[i], ds_stride=2,
-                    depth=2, drop_path_rates=[0., 0.], ls_init_value=1e-6, mlp_ratio=2
-                )
-                curr_numC = num_channels[i] 
-                layers.append(layer)
+                layer = [nn.Sequential(
+                    LayerNorm2d(curr_numC),
+                    nn.Conv2d(
+                        curr_numC,
+                        num_channels[i],
+                        kernel_size=2,
+                        stride=2),
+                )]
+                curr_numC = num_channels[i]
+                layer.extend([ConvNeXtBlock(in_channels=curr_numC, 
+                                            mlp_ratio=3, drop_path_rate=0.1) for _ in range(num_layer[i])])
+                layers.append(nn.Sequential(*layer))
         else:
             assert False
 
