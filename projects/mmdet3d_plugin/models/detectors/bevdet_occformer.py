@@ -410,7 +410,6 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                 loss_weight[k] = v * self.seg_loss_weight
             losses.update(loss_weight)
 
-
         if self.BEVseg_loss:
             bev_preds = self.BEVseg(occ_bev_feats[0]).permute(0,3,2,1)
             masked_semantics_gt = torch.where(mask_camera, voxel_semantics, torch.tensor(17).to(voxel_semantics))
@@ -443,7 +442,6 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                 ).sum() / max(1.0, fg_mask.sum())
             
             losses['loss_BEV_AUX'] = bev_seg_loss * self.bevseg_loss_weight
-            
         return losses
 
     
