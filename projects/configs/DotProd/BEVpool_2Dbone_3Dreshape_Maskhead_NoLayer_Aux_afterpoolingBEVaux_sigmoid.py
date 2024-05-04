@@ -75,9 +75,9 @@ model = dict(
     only_last_layer=True,
     vox_simple_reshape=True,
     vox_aux_loss_3d=True,
-    BEVseg_loss=True,
-    BEV_out_channel=voxel_out_channels,
-    BEVseg_loss_mode='softmax',
+    BEVseg_loss_after_pooling=True,
+    BEV_out_channel=numC_Trans_pool,
+    BEVseg_loss_mode='sigmoid',
     
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
@@ -417,5 +417,3 @@ log_config = dict(
         dict(type='TextLoggerHook'),
         dict(type='TensorboardLoggerHook')
     ])
-
-load_from='./work_dirs/DotProd/BEVpool_2Dbone_3Dreshape_Maskhead_NoLayer_Aux_BEVaux_softmax/epoch_24_ema.pth'
