@@ -75,10 +75,7 @@ model = dict(
     only_last_layer=True,
     vox_simple_reshape=True,
     vox_aux_loss_3d=True,
-    BEVseg_loss=True,
-    BEV_out_channel=voxel_out_channels,
-    BEVseg_loss_mode='softmax',
-    
+    SA_loss=True,
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
         in_dim=voxel_out_channels,
@@ -126,6 +123,7 @@ model = dict(
         collapse_z=True,
         downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
+        segmentation_loss=True
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(
@@ -289,6 +287,7 @@ train_pipeline = [
     dict(
         type='PrepareImageInputs',
         is_train=True,
+        load_point_label=True,
         data_config=data_config,
         sequential=True),
     dict(
@@ -307,7 +306,7 @@ train_pipeline = [
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
         type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera'])
+                                'mask_lidar', 'mask_camera','SA_gt_depth', 'SA_gt_semantic'])
 ]
 
 test_pipeline = [
@@ -417,5 +416,4 @@ log_config = dict(
         dict(type='TextLoggerHook'),
         dict(type='TensorboardLoggerHook')
     ])
-
-load_from='./work_dirs/DotProd/BEVpool_2Dbone_3Dreshape_Maskhead_NoLayer_Aux_BEVaux_softmax/epoch_24_ema.pth'
+fp16 = dict(loss_scale='dynamic')
