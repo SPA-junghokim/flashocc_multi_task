@@ -143,6 +143,8 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                  
                  only_non_empty_voxel_dot = False,
                  
+                 test_merge=True,
+                 
                  time_check=False,
                  **kwargs):
         super(BEVDetOCC_depthGT_occformer, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
@@ -284,7 +286,8 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         self.aux_test = aux_test
         
         self.only_non_empty_voxel_dot = only_non_empty_voxel_dot
-            
+        self.test_merge = test_merge
+        
         self.time_check = time_check
         if self.time_check:
             self.start_event = torch.cuda.Event(enable_timing=True)
@@ -612,7 +615,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
             return aux_occ_preds
         
         occ_pred = None
-        if self.only_non_empty_voxel_dot:
+        if self.only_non_empty_voxel_dot or self.test_merge:
             occ_pred = self.vox_aux_loss_3d_occ_head(occ_vox_feats[0].permute(0,1,4,2,3))
 
         occ_preds = self.occ_head.simple_test(occ_vox_feats, img_metas_occ, occ_pred)      # List[(Dx, Dy, Dz), (Dx, Dy, Dz), ...]
