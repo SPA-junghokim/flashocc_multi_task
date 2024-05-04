@@ -219,13 +219,12 @@ model = dict(
                                  'ffn', 'norm')),
             init_cfg=None),
         # loss settings
-        empty_weight01=True,
         loss_cls=dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
             loss_weight=2.0,
             reduction='mean',
-            class_weight=[1.0] * (num_class-1) + [0.1]),
+            class_weight=[1.0] * num_class + [0.1]),
         loss_mask=dict(
             type='CrossEntropyLoss',
             use_sigmoid=True,
@@ -393,7 +392,7 @@ lr_config = dict(
     warmup_iters=200,
     warmup_ratio=0.001,
     step=[24, ])
-runner = dict(type='EpochBasedRunner', max_epochs=24)
+runner = dict(type='EpochBasedRunner', max_epochs=12)
 
 custom_hooks = [
     dict(
@@ -406,7 +405,7 @@ custom_hooks = [
 # load_from = "ckpts/bevdet-r50-cbgs.pth"
 # fp16 = dict(loss_scale='dynamic')
 evaluation = dict(interval=1, start=24, pipeline=test_pipeline)
-checkpoint_config = dict(interval=1, max_keep_ckpts=5)
+checkpoint_config = dict(interval=3, max_keep_ckpts=10)
 
 
 log_config = dict(
@@ -415,3 +414,5 @@ log_config = dict(
         dict(type='TextLoggerHook'),
         dict(type='TensorboardLoggerHook')
     ])
+
+load_from='./work_dirs/DotProd_pretrain/BEVpool_2Dbone_3Dreshape_Maskhead_NoLayer_Aux_pretrained_PtoV_P2/epoch_2.pth'
