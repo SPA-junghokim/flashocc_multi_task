@@ -1,6 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import torch
 import torch.nn as nn
+import numpy as np
 from mmcv.runner import BaseModule, force_fp32
 from mmcv.cnn import ConvModule, build_conv_layer
 from mmdet3d.models.builder import NECKS
@@ -12,6 +13,11 @@ from mmdet3d.models.builder import build_loss
 from mmcv.cnn import build_conv_layer
 
 from ...ops.average_voxel_pooling_v2 import average_voxel_pooling
+
+# occ3d-nuscenes
+nusc_class_frequencies = np.array([1163161, 2309034, 188743, 2997643, 20317180, 852476, 243808, 2457947, 
+            497017, 2731022, 7224789, 214411435, 5565043, 63191967, 76098082, 128860031, 
+            141625221, 2307405309])
 
 @NECKS.register_module(force=True)
 class LSSViewTransformer(BaseModule):
@@ -48,6 +54,7 @@ class LSSViewTransformer(BaseModule):
         accelerate=False,
         sid=False,
         collapse_z=True,
+        
     ):
         super(LSSViewTransformer, self).__init__()
         self.grid_config = grid_config
@@ -64,6 +71,8 @@ class LSSViewTransformer(BaseModule):
         self.accelerate = accelerate
         self.initial_flag = True
         self.collapse_z = collapse_z
+        
+        
 
     def create_grid_infos(self, x, y, z, **kwargs):
         """Generate the grid information including the lower bound, interval,
@@ -469,7 +478,8 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                  loss_segmentation_weight=1, 
                  use_depth_threhold=False, 
                  depth_threshold=1,
-                 LSS_Rendervalue=False, 
+                 LSS_Rendervalue=False,
+                 balance_cls_weight=False,
                  **kwargs):
         super(LSSViewTransformerBEVDepth, self).__init__(**kwargs)
         self.loss_depth_weight = loss_depth_weight
@@ -486,6 +496,14 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         self.depth_loss_focal = depth_loss_focal
         self.use_depth_threhold = use_depth_threhold
         self.LSS_Rendervalue = LSS_Rendervalue
+        self.balance_cls_weight = balance_cls_weight
+        
+        
+        if self.balance_cls_weight:
+            self.class_weights = torch.from_numpy(1 / np.log(nusc_class_frequencies[:17] + 0.001)).float()
+            zero_tensor = torch.zeros(1, dtype=self.class_weights.dtype, device=self.class_weights.device)
+            self.class_weights = torch.cat((zero_tensor, self.class_weights),dim=0)
+            self.class_weights = self.class_weights.reshape(1,1,1,1,18).contiguous()
         
         if self.depth_loss_focal:
             self.depth_focalloss = build_loss(dict(type="FocalLoss"))
@@ -730,8 +748,12 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         num_classes = 18
         one_hot = torch.nn.functional.one_hot(gt_semantics.to(torch.int64), num_classes=num_classes)
         one_hot = one_hot.view(B, N, H // self.downsample, self.downsample, W // self.downsample, self.downsample, num_classes)
-        class_counts = one_hot.sum(dim=(3, 5))
+        class_counts = one_hot.sum(dim=(3, 5)).to(self.class_weights)
         class_counts[..., 0] = 0
+        class_counts = class_counts.to(self.class_weights)
+        if self.balance_cls_weight:
+            class_counts = class_counts * self.class_weights
+            
         _, most_frequent_classes = class_counts.max(dim=-1)
         gt_semantics = most_frequent_classes.view(B * N, H // self.downsample, W // self.downsample)
         # gt_semantics = F.one_hot(gt_semantics.long(), num_classes=18).view(-1, 18).float()
@@ -789,7 +811,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             context_feature = self.class_predictor(semantic_preds) # 24,256,16,44
             fg_mask = torch.max(depth_labels, dim=1).values > 0.0
             context_feature = context_feature.softmax(dim=1).permute(0, 2, 3, 1).contiguous().view(-1, 18)
-            semantic_labels = semantic_labels.permute(0, 2, 3, 1).contiguous().view(-1, 18)
+            semantic_labels = semantic_labels.permute(0, 2, 3, 1).contiguous().view(-1, 18).to(context_feature)
             semantic_pred = context_feature[fg_mask]
             semantic_labels = semantic_labels[fg_mask]
             with autocast(enabled=False):
