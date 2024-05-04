@@ -15,6 +15,7 @@ from mmdet3d.datasets.builder import PIPELINES
 from torchvision.transforms.functional import rotate
 
 from mmdet3d.datasets.pipelines import LoadPointsFromFile
+from mmcv.parallel import DataContainer as DC
 
 
 def mmlabNormalize(img):
@@ -528,6 +529,7 @@ class PointToMultiViewDepth(object):
         imgs, sensor2egos, ego2globals, intrins = results['img_inputs'][:4]
         post_rots, post_trans, bda = results['img_inputs'][4:]
         depth_map_list = []
+        img_proj_points = []
         for cid in range(len(results['cam_names'])):
             cam_name = results['cam_names'][cid]    # CAM_TYPE
             # 猜测liadr和cam不是严格同步的，因此lidar_ego和cam_ego可能会不一致.
@@ -578,13 +580,16 @@ class PointToMultiViewDepth(object):
             # 再考虑图像增广
             points_img = points_img.matmul(
                 post_rots[cid].T) + post_trans[cid:cid + 1, :]      # (N_points, 3):  3: (u, v, d)
+            img_proj_points.append(points_img)
             depth_map = self.points2depthmap(points_img,
                                              imgs.shape[2],     # H
                                              imgs.shape[3]      # W
                                              )
             depth_map_list.append(depth_map)
         depth_map = torch.stack(depth_map_list)
+        img_proj_points = DC(torch.stack(img_proj_points))
         results['gt_depth'] = depth_map
+        results['img_proj_points'] = img_proj_points
         return results
 
 

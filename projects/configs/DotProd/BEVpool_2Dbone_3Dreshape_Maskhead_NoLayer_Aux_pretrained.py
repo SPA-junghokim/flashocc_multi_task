@@ -304,7 +304,7 @@ train_pipeline = [
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
         type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera','points'])
+                                'mask_lidar', 'mask_camera','points', 'img_proj_points'])
 ]
 
 test_pipeline = [
@@ -363,7 +363,7 @@ test_data_config = dict(
 
 data = dict(
     samples_per_gpu=4,
-    workers_per_gpu=4,
+    workers_per_gpu=0,
     train=dict(
         data_root=data_root,
         ann_file=data_root + 'bevdetv2-nuscenes_infos_train_seg.pkl',
