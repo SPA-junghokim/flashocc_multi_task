@@ -64,6 +64,7 @@ if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
 else:
     numC_Trans_cat = numC_Trans
+    
 model = dict(
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
@@ -74,6 +75,7 @@ model = dict(
     only_last_layer=True,
     vox_simple_reshape=True,
     vox_aux_loss_3d=True,
+    
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
         in_dim=voxel_out_channels,
@@ -217,12 +219,13 @@ model = dict(
                                  'ffn', 'norm')),
             init_cfg=None),
         # loss settings
+        empty_weight01=True,
         loss_cls=dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
             loss_weight=2.0,
             reduction='mean',
-            class_weight=[1.0] * num_class + [0.1]),
+            class_weight=[1.0] * (num_class-1) + [0.1]),
         loss_mask=dict(
             type='CrossEntropyLoss',
             use_sigmoid=True,
@@ -364,8 +367,8 @@ data = dict(
     workers_per_gpu=4,
     train=dict(
         data_root=data_root,
-        ann_file=data_root + 'bevdetv2-nuscenes_infos_train_seg.pkl',
-        # ann_file=data_root + 'data10_seg.pkl',
+        # ann_file=data_root + 'bevdetv2-nuscenes_infos_train_seg.pkl',
+        ann_file=data_root + 'data10_seg.pkl',
         pipeline=train_pipeline,
         classes=class_names,
         test_mode=False,
@@ -389,8 +392,8 @@ lr_config = dict(
     warmup='linear',
     warmup_iters=200,
     warmup_ratio=0.001,
-    step=[12, ])
-runner = dict(type='EpochBasedRunner', max_epochs=12)
+    step=[24, ])
+runner = dict(type='EpochBasedRunner', max_epochs=24)
 
 custom_hooks = [
     dict(
@@ -402,8 +405,8 @@ custom_hooks = [
 
 # load_from = "ckpts/bevdet-r50-cbgs.pth"
 # fp16 = dict(loss_scale='dynamic')
-evaluation = dict(interval=3, start=12, pipeline=test_pipeline)
-checkpoint_config = dict(interval=3, max_keep_ckpts=5)
+evaluation = dict(interval=1, start=24, pipeline=test_pipeline)
+checkpoint_config = dict(interval=1, max_keep_ckpts=5)
 
 
 log_config = dict(
