@@ -98,7 +98,7 @@ class voxelize_module(nn.Module):
 
 
 @DETECTORS.register_module()
-class BEVDetOCC_depthGT_occformer(BEVDepth4D):
+class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
     def __init__(self,
                  pts_bbox_head=None,
                  occ_head=None,
@@ -144,7 +144,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                  
                  time_check=False,
                  **kwargs):
-        super(BEVDetOCC_depthGT_occformer, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
+        super(BEVDetOCC_depthGT_occformer_pretrain, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
                                              img_bev_encoder_neck=img_bev_encoder_neck,**kwargs)
         
         self.occ_head = occ_head
@@ -424,7 +424,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         losses.update(loss_depth)
         
         det_feats, occ_bev_feats, occ_vox_feats, seg_feats =  img_feats
-
+        breakpoint()
         if self.pts_bbox_head is not None:
             bbox_outs = self.pts_bbox_head([det_feats])
             losses_pts = self.pts_bbox_head.loss(gt_bboxes_3d, gt_labels_3d, bbox_outs)

@@ -417,3 +417,5 @@ log_config = dict(
         dict(type='TextLoggerHook'),
         dict(type='TensorboardLoggerHook')
     ])
+
+load_from='./work_dirs/DotProd/BEVpool_2Dbone_3Dreshape_Maskhead_NoLayer_Aux_BEVaux_softmax/epoch_24_ema.pth'
