@@ -94,11 +94,11 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
                  mask_size=[200,200],
                  point_sample_for_dn= False,
                  only_non_empty_voxel_dot=False,
+                 empty_weight01=False,
+                 test_merge=False,
                  **kwargs):
         super(AnchorFreeHead, self).__init__(init_cfg)
-        
         self.num_occupancy_classes = num_occupancy_classes
-        self.num_classes = self.num_occupancy_classes
         self.num_queries = num_queries
         self.point_cloud_range = point_cloud_range
         
@@ -133,7 +133,12 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             self.level_embed = nn.Embedding(self.num_transformer_feat_level, feat_channels)
 
         ''' Pixel Decoder Related, skipped '''
-        self.cls_embed = nn.Linear(feat_channels, self.num_classes + 1)
+        if empty_weight01:
+            self.cls_embed = nn.Linear(feat_channels, self.num_occupancy_classes)
+            self.num_classes = self.num_occupancy_classes - 1
+        else:
+            self.cls_embed = nn.Linear(feat_channels, self.num_occupancy_classes + 1)
+            self.num_classes = self.num_occupancy_classes
         self.mask_embed = nn.Sequential(
             nn.Linear(feat_channels, feat_channels), nn.ReLU(inplace=True),
             nn.Linear(feat_channels, feat_channels), nn.ReLU(inplace=True),
@@ -197,6 +202,12 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         self.index_for_debug = 0
         self.index_for_debug_list = []
         self.only_non_empty_voxel_dot = only_non_empty_voxel_dot
+        
+        self.test_merge = test_merge
+        self.empty_weight01 = empty_weight01
+        self.mask_threshold = 0.7
+        self.occupy_threshold = 0.3
+        self.overlap_threshold = 0.8
         
     def init_weights(self):
         for m in self.decoder_input_projs:
@@ -320,6 +331,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             self.index_for_debug_list.append(self.index_for_debug)
             print(self.index_for_debug_list)
             return None, None, None, None, None, None
+
         assign_result = self.assigner.assign(cls_score, mask_points_pred,
                                              gt_labels, gt_points_masks,
                                              img_metas)
@@ -1087,6 +1099,68 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         output_voxels = torch.einsum("bqc, bqxyz->bcxyz", mask_cls, mask_pred) # 100 -> 18
         return output_voxels
 
+    def decoder_inference_func(self, mask_cls_results, mask_pred_results, reference_points=None, sampling_locations=None):
+        processed_results = []
+        for index, mask_result in enumerate(zip(mask_cls_results, mask_pred_results)):
+            mask_cls_result, mask_pred_result = mask_result
+            scores, labels = F.softmax(mask_cls_result, dim=-1).max(-1)
+            mask_pred = mask_pred_result.sigmoid()
+            keep = labels.ne(self.num_classes) & (scores > self.mask_threshold)
+            cur_scores = scores[keep]
+            cur_classes = labels[keep]
+            cur_masks = mask_pred[keep]
+            cur_mask_cls = mask_cls_result[keep]
+            cur_mask_cls = cur_mask_cls[:, :-1]
+
+            cur_prob_masks = cur_scores.view(-1, 1, 1, 1) * cur_masks #[N, w, h, z]
+
+            w, h, z = cur_masks.shape[-3:]
+            semseg = torch.ones((w, h, z), dtype=torch.int32, device=cur_masks.device) * (self.num_classes-1)
+
+            if cur_masks.shape[0] == 0:
+                # we didn't detect any mask :(
+                processed_results.append(semseg)
+            else:
+                cur_mask_ids = cur_prob_masks.argmax(0)
+                for k in range(cur_classes.shape[0]):
+                    pred_class = cur_classes[k].item()
+                    mask = cur_mask_ids == k
+                    mask_area = mask.sum().item()
+                    cur_mask = cur_masks[k] >= self.occupy_threshold
+                    original_area = cur_mask.sum().item()
+
+                    if mask_area > 0 and original_area > 0:
+                        if mask_area / original_area < self.overlap_threshold:
+                            continue
+                        if (mask_area > original_area):
+                            if (pred_class < 11):
+                                semseg[cur_mask] = pred_class
+                            # elif (mask_area > self.test_cfg.max_mask_len):
+                            elif (mask_area > 3 * original_area):
+                                semseg[cur_mask] = pred_class
+                            else:
+                                semseg[mask] = pred_class
+                        else:
+                            semseg[cur_mask] = pred_class
+                            semseg[mask] = pred_class
+                processed_results.append(semseg)
+                # print(f"semseg.shape:{semseg.shape}")
+
+        processed_results = torch.stack(processed_results)
+        return processed_results
+    
+    def merge(self, pred1, pred2):
+        for cls in range(18):
+            # mask1 = pred1 == cls
+            # if mask1.sum().item() > self.test_cfg.max_mask_len:
+            #     pred1[mask1] = self.num_classes
+            if cls >= 11:
+                mask1 = pred1 == cls
+                pred1[mask1] = self.num_classes
+            mask2 = pred2 == cls
+            pred1[mask2] = cls
+        return pred1
+
     def simple_test(self, 
             voxel_feats,
             img_metas,
@@ -1120,10 +1194,18 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         #     mode='trilinear',
         #     align_corners=self.align_corners,
         # )
-        
-        output_voxels = self.format_results(mask_cls_results, mask_pred_results)
-        occ_score = output_voxels.permute(0,2,3,4,1).softmax(-1)    # (B, Dx, Dy, Dz, C)
-        occ_res = occ_score.argmax(-1)      # (B, Dx, Dy, Dz)
+        if self.empty_weight01:
+            occ_res = self.decoder_inference_func(mask_cls_results, mask_pred_results)
+        else:
+            output_voxels = self.format_results(mask_cls_results, mask_pred_results)
+            occ_score = output_voxels.permute(0,2,3,4,1).softmax(-1)    # (B, Dx, Dy, Dz, C)
+            occ_res = occ_score.argmax(-1)      # (B, Dx, Dy, Dz)
+
+        if self.test_merge and occ_pred is not None:
+            occ_pred = occ_pred.softmax(-1)
+            occ_pred = occ_pred.argmax(-1)
+            occ_res = self.merge(occ_res, occ_pred)
+            
         occ_res = occ_res.cpu().numpy().astype(np.uint8)     # (B, Dx, Dy, Dz)
 
         return list(occ_res)

@@ -64,36 +64,18 @@ if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
 else:
     numC_Trans_cat = numC_Trans
+    
 model = dict(
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
-    type='BEVDetOCC_depthGT_occformer',
+    type='BEVDetOCC_depthGT_occformer_pretrain',
     pc_range = point_cloud_range,
     grid_size = grid_size,
     voxel_out_channels = voxel_out_channels,
     only_last_layer=True,
     vox_simple_reshape=True,
-    vox_aux_loss_3d=True,
-    BEVseg_loss_after_pooling=True,
-    BEV_out_channel=numC_Trans_pool,
-    BEVseg_loss_mode='sigmoid',
-    vox_aux_loss_3d_occ_head=dict(
-        type='BEVOCCHead3D',
-        in_dim=voxel_out_channels,
-        out_dim=32,
-        use_mask=True,
-        num_classes=18,
-        use_predicter=True,
-        class_wise=False,
-        loss_occ=dict(
-            type='CrossEntropyLoss',
-            use_sigmoid=False,
-            ignore_index=255,
-            loss_weight=1.0
-        ),
-        sololoss=True,
-        loss_weight=10.,
-    ),
+    grid_config=grid_config,
+    global_VtoP=True,
     
     img_backbone=dict(
         type='ResNet',
@@ -143,128 +125,6 @@ model = dict(
         input_feature_index=(0, 1, 2),
         ),
     
-    # down_sample_for_3d_pooling=[numC_Trans, voxel_out_channels*2],
-    # bev_neck_deform=True,
-    # bev_deform_backbone = dict(
-    #     type='SimpleBEVEncoder',
-    #     in_channels=voxel_out_channels*2,
-    #     ),
-    # bev_deform_neck=dict(
-    #     type="MSDeformAttnPixelDecoder",
-    #     num_outs=4,
-    #     in_channels=[voxel_out_channels*2, voxel_out_channels*2, voxel_out_channels*2, voxel_out_channels*2],
-    #     strides=[1, 2, 4, 8],
-    #     norm_cfg=dict(type="GN", num_groups=16),
-    #     act_cfg=dict(type="ReLU"),
-    #     feat_channels = voxel_out_channels*2,
-    #     out_channels = voxel_out_channels*2,
-    #     encoder=dict(  # DeformableDetrTransformerEncoder
-    #         num_layers=6,
-    #         layer_cfg=dict(  # DeformableDetrTransformerEncoderLayer
-    #             self_attn_cfg=dict(embed_dims=voxel_out_channels*2, num_heads=8, num_levels=3, num_points=4, dropout=0.0,
-    #                                 batch_first=True),  # MultiScaleDeformableAttention
-    #             ffn_cfg=dict(embed_dims=voxel_out_channels*2, feedforward_channels=voxel_out_channels*8, num_fcs=2, ffn_drop=0.0,
-    #                             act_cfg=dict(type="ReLU", inplace=True)),
-    #         ),
-    #     ),
-    #     num_cp=0,
-    #     positional_encoding=dict(num_feats=voxel_out_channels, normalize=True),
-    # ),
-    # img_bev_encoder_neck=dict(
-    #     type='Custom_FPN_LSS',
-    #     only_largest_voxel_feature_used=True,
-    #     catconv_in_channels1=voxel_out_channels * 2 + voxel_out_channels * 2,
-    #     catconv_in_channels2=voxel_out_channels * 2 + voxel_out_channels * 2,
-    #     outconv_in_channels1=voxel_out_channels * 2,
-    #     outconv_in_channels2=voxel_out_channels * 2,
-    #     outconv_in_channels3=voxel_out_channels * 2,
-    #     out_channels=voxel_out_channels,
-    #     input_feature_index=(0, 1, 2),
-    #     ),
-    occ_head=dict(
-        type='Mask2FormerNuscOccHead',
-        feat_channels=mask2former_feat_channel,
-        out_channels=mask2former_output_channel,
-        num_queries=mask2former_num_queries,
-        num_occupancy_classes=num_class,
-        pooling_attn_mask=True,
-        sample_weight_gamma=0.25,
-        num_transformer_feat_level=0,
-        # using stand-alone pixel decoder
-        positional_encoding=dict(
-            type='SinePositionalEncoding3D', num_feats=mask2former_pos_channel, normalize=True),
-        # using the original transformer decoder
-        transformer_decoder=dict(
-            type='DetrTransformerDecoder_custom',
-            return_intermediate=True,
-            num_layers=0,
-            transformerlayers=dict(
-                type='DetrTransformerDecoderLayer',
-                attn_cfgs=dict(
-                    type='MultiheadAttention',
-                    embed_dims=mask2former_feat_channel,
-                    num_heads=mask2former_num_heads,
-                    attn_drop=0.0,
-                    proj_drop=0.0,
-                    dropout_layer=None,
-                    batch_first=False),
-                ffn_cfgs=dict(
-                    embed_dims=mask2former_feat_channel,
-                    num_fcs=2,
-                    act_cfg=dict(type='ReLU', inplace=True),
-                    ffn_drop=0.0,
-                    dropout_layer=None,
-                    add_identity=True),
-                feedforward_channels=mask2former_feat_channel * 8,
-                operation_order=('cross_attn', 'norm', 'self_attn', 'norm',
-                                 'ffn', 'norm')),
-            init_cfg=None),
-        # loss settings
-        loss_cls=dict(
-            type='CrossEntropyLoss',
-            use_sigmoid=False,
-            loss_weight=2.0,
-            reduction='mean',
-            class_weight=[1.0] * num_class + [0.1]),
-        loss_mask=dict(
-            type='CrossEntropyLoss',
-            use_sigmoid=True,
-            reduction='mean',
-            loss_weight=5.0),
-        loss_dice=dict(
-            type='DiceLoss',
-            use_sigmoid=True,
-            activate=True,
-            reduction='mean',
-            naive_dice=True,
-            eps=1.0,
-            loss_weight=5.0),
-        
-        point_cloud_range=point_cloud_range,
-        train_cfg=dict(
-            num_points=12544*3,
-            oversample_ratio=3.0,
-            importance_sample_ratio=0.75,
-            assigner=dict(
-                type='MaskHungarianAssigner',
-                cls_cost=dict(type='ClassificationCost', weight=2.0),
-                mask_cost=dict(
-                    type='CrossEntropyLossCost', weight=5.0, use_sigmoid=True),
-                dice_cost=dict(
-                    type='DiceCost', weight=5.0, pred_act=True, eps=1.0)),
-                sampler=dict(type='MaskPseudoSampler'),
-            ),
-        test_cfg=dict(
-                semantic_on=True,
-                panoptic_on=False,
-                instance_on=False),
-        loss_lovasz=True,
-        lovasz_loss_weight=1,
-        lovasz_flatten=True,
-        consider_visible_mask = True,
-        learned_pos_embed=True,
-
-    ),
     after_voxelize_add = True,
     det_loss_weight = 1,
     occ_loss_weight = 1,
@@ -301,11 +161,19 @@ train_pipeline = [
         load_dim=5,
         use_dim=5,
         file_client_args=file_client_args),
-    dict(type='PointToMultiViewDepth', downsample=1, grid_config=grid_config),
+    dict(type='PointToMultiViewDepth', downsample=1, grid_config=grid_config, preprocess_for_pretrain=True),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
         type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera'])
+                                'mask_lidar', 'mask_camera','points', 'points_img_list',
+                                'coor_list', 'norm_points_list'
+                                ])
+    # dict(type='PointToMultiViewDepth', downsample=1, grid_config=grid_config, preprocess_for_pretrain=False),
+    # dict(type='DefaultFormatBundle3D', class_names=class_names),
+    # dict(
+    #     type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
+    #                             'mask_lidar', 'mask_camera','points', 'points_img_list',
+    #                             ])
 ]
 
 test_pipeline = [
@@ -392,7 +260,7 @@ lr_config = dict(
     warmup='linear',
     warmup_iters=200,
     warmup_ratio=0.001,
-    step=[12, ])
+    step=[24, ])
 runner = dict(type='EpochBasedRunner', max_epochs=12)
 
 custom_hooks = [
@@ -405,8 +273,8 @@ custom_hooks = [
 
 # load_from = "ckpts/bevdet-r50-cbgs.pth"
 # fp16 = dict(loss_scale='dynamic')
-evaluation = dict(interval=3, start=12, pipeline=test_pipeline)
-checkpoint_config = dict(interval=3, max_keep_ckpts=5)
+evaluation = dict(interval=1, start=24, pipeline=test_pipeline)
+checkpoint_config = dict(interval=3, max_keep_ckpts=10)
 
 
 log_config = dict(

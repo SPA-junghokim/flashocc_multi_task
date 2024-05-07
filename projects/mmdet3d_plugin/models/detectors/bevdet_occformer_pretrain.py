@@ -13,6 +13,7 @@ from mmcv.runner import force_fp32
 from mmdet3d.models import builder
 import time
 from torch.cuda.amp.autocast_mode import autocast
+from info_nce import InfoNCE, info_nce
 
 class voxelize_module(nn.Module):
     def __init__(
@@ -124,8 +125,6 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
                  after_voxelize_add = False,
                  imgfeat_32x88 = False,
                  only_last_layer=False,
-                 vox_aux_loss_3d=False,
-                 vox_aux_loss_3d_occ_head=None,
                  vox_simple_reshape=False,
                  aux_test=False,
                  
@@ -133,17 +132,15 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
                  bev_deform_backbone=None,
                  bev_deform_neck = None,
                  
-                 SA_loss=False,
-                 BEVseg_loss=False,
-                 BEVseg_loss_after_pooling=False,
-                 BEV_out_channel=None,
-                 BEVseg_loss_mode='softmax',
-                 bevseg_loss_weight=3.0, 
-                 
                  only_non_empty_voxel_dot = False,
+                 
+                 grid_config=None,
+                 global_VtoP=False,
+                 global_PtoV=False,
                  
                  time_check=False,
                  **kwargs):
+        img_feat_dim = kwargs['img_neck']['out_channels']
         super(BEVDetOCC_depthGT_occformer_pretrain, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
                                              img_bev_encoder_neck=img_bev_encoder_neck,**kwargs)
         
@@ -159,78 +156,9 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
             
         self.upsample = upsample
         self.down_sample_for_3d_pooling = down_sample_for_3d_pooling
-        self.SA_loss = SA_loss
-        self.BEVseg_loss = BEVseg_loss
-        self.BEVseg_loss_after_pooling = BEVseg_loss_after_pooling
-        self.bevseg_loss_weight = bevseg_loss_weight
-        self.BEVseg_loss_mode = BEVseg_loss_mode
-        
-        if self.BEVseg_loss:
-            self.BEV_out_channel=BEV_out_channel
-            self.BEVseg = nn.Sequential(
-                    nn.Conv2d(self.BEV_out_channel, self.BEV_out_channel * 2, kernel_size=3, padding=1),
-                    nn.BatchNorm2d(self.BEV_out_channel * 2),
-                    nn.ReLU(),
-                    nn.Conv2d(self.BEV_out_channel * 2, self.BEV_out_channel, kernel_size=3, stride=1, padding=1),
-                    nn.BatchNorm2d(self.BEV_out_channel),
-                    nn.ReLU(),
-                    nn.Conv2d(self.BEV_out_channel, 17, kernel_size=1, stride=1, padding=0)
-                )
-        if self.BEVseg_loss_after_pooling:
-            self.BEV_out_channel=BEV_out_channel
-            self.BEVseg_after_pooling1 = nn.Sequential(
-                    nn.Conv2d(self.BEV_out_channel, self.BEV_out_channel * 2, kernel_size=3, padding=1),
-                    nn.BatchNorm2d(self.BEV_out_channel * 2),
-                    nn.ReLU(),
-                    nn.Conv2d(self.BEV_out_channel*2, self.BEV_out_channel * 2, kernel_size=3, stride=1, padding=1),
-                    nn.BatchNorm2d(self.BEV_out_channel * 2),
-                    nn.ReLU(),
-            )
-            self.BEVseg_after_pooling2 = nn.Sequential(
-                    nn.Conv2d(self.BEV_out_channel*2, self.BEV_out_channel * 2, kernel_size=3, stride=2, padding=1),
-                    nn.BatchNorm2d(self.BEV_out_channel * 2),
-                    nn.ReLU(),
-            )
-            self.BEVseg_after_pooling3 = nn.Sequential(
-                    nn.Conv2d(self.BEV_out_channel*2, self.BEV_out_channel * 2, kernel_size=3, stride=2, padding=1),
-                    nn.BatchNorm2d(self.BEV_out_channel * 2),
-                    nn.ReLU(),
-            )
-            self.BEVseg_after_pooling4 = nn.Sequential(
-                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-                    nn.Conv2d(self.BEV_out_channel*2, self.BEV_out_channel * 2, kernel_size=3, stride=1, padding=1),
-                    nn.BatchNorm2d(self.BEV_out_channel * 2),
-                    nn.ReLU(),
-            )
-            self.BEVseg_after_pooling5 = nn.Sequential(
-                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-                    nn.Conv2d(self.BEV_out_channel*2, self.BEV_out_channel * 2, kernel_size=3, stride=1, padding=1),
-                    nn.BatchNorm2d(self.BEV_out_channel * 2),
-                    nn.ReLU(),
-            )
-            self.BEVseg_after_pooling_head = nn.Sequential(
-                    nn.Conv2d(self.BEV_out_channel*2, self.BEV_out_channel * 2, kernel_size=3, stride=1, padding=1),
-                    nn.BatchNorm2d(self.BEV_out_channel * 2),
-                    nn.ReLU(),
-                    nn.Conv2d(self.BEV_out_channel*2, self.BEV_out_channel * 2, kernel_size=3, stride=1, padding=1),
-                    nn.BatchNorm2d(self.BEV_out_channel * 2),
-                    nn.ReLU(),
-                    nn.Conv2d(self.BEV_out_channel*2, 17, kernel_size=1, stride=1, padding=0),
-            )
-            
-        if self.down_sample_for_3d_pooling is not None:
-            self.down_sample_for_3d_pooling = \
-                        nn.Conv2d(self.down_sample_for_3d_pooling[0],
-                        self.down_sample_for_3d_pooling[1],
-                        kernel_size=1,
-                        padding=0,
-                        stride=1)
                         
         self.pc_range = torch.tensor(pc_range)
         self.grid_size = torch.tensor(grid_size)
-        self.det_loss_weight = det_loss_weight
-        self.occ_loss_weight = occ_loss_weight
-        self.seg_loss_weight = seg_loss_weight
         self.detection_backbone = detection_backbone
         self.detection_neck = detection_neck
         
@@ -277,18 +205,26 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
             self.img_bev_encoder_backbone = builder.build_neck(bev_deform_backbone)
             self.bev_deform_neck = builder.build_neck(bev_deform_neck)
             
-        self.vox_aux_loss_3d = vox_aux_loss_3d
-        if self.vox_aux_loss_3d:
-            self.vox_aux_loss_3d_occ_head = build_head(vox_aux_loss_3d_occ_head)
-        self.aux_test = aux_test
-        
         self.only_non_empty_voxel_dot = only_non_empty_voxel_dot
-            
+        self.grid_config = grid_config
+        
+        self.info_nce_loss = InfoNCE()
+        self.global_VtoP = global_VtoP
+        self.global_PtoV = global_PtoV
+        if self.global_VtoP:
+            self.VtoP_Projector = nn.Linear(voxel_out_channels, img_feat_dim)
+        if self.global_PtoV:
+            self.PtoV_Projector = nn.Linear(img_feat_dim, voxel_out_channels)
+
+
+        
         self.time_check = time_check
         if self.time_check:
             self.start_event = torch.cuda.Event(enable_timing=True)
             self.end_event = torch.cuda.Event(enable_timing=True)
             self.time_list = []
+            self.time_list1 = []
+            self.time_list2 = []
         
     def extract_feat(self, points, img_inputs, img_metas, **kwargs):
         """Extract features from images and points."""
@@ -304,9 +240,9 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
                 post_trans:  (B, N_views, 3)
                 bda_rot:  (B, 3, 3)
         """
-        img_feats, depth, trans_feat, bev_feat = self.extract_img_feat(img_inputs, img_metas, **kwargs)
+        img_feats, depth, trans_feat, bev_feat, img_feat_list = self.extract_img_feat(img_inputs, img_metas, **kwargs)
         pts_feats = None
-        return img_feats, pts_feats, depth, trans_feat, bev_feat
+        return img_feats, pts_feats, depth, trans_feat, bev_feat, img_feat_list
 
 
     def image_encoder(self, img, stereo=False):
@@ -365,7 +301,7 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
             [x, sensor2egos, ego2globals, intrin, post_rot, post_tran, bda, mlp_input])
         if self.pre_process:
             bev_feat = self.pre_process_net(bev_feat)[0]    # (B, C, Dy, Dx)
-        return bev_feat, depth, trans_feat
+        return bev_feat, depth, trans_feat, x
 
     def forward_train(self,
                       points=None,
@@ -409,122 +345,85 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
         # img_feats: List[(B, C, Dz, Dy, Dx)/(B, C, Dy, Dx) , ]
         # pts_feats: None
         # depth: (B*N_views, D, fH, fW)
-        img_feats, pts_feats, depth, trans_feat, bev_feat = self.extract_feat(
+        img_feats, pts_feats, depth, trans_feat, bev_feat, img_feat_list = self.extract_feat(
                 points, img_inputs=img_inputs, img_metas=img_metas, **kwargs)
 
         gt_depth = kwargs['gt_depth']   # (B, N_views, img_H, img_W)
         
         losses = dict()
-        if self.SA_loss:
-            sa_gt_depth = kwargs['SA_gt_depth']
-            sa_gt_semantic = kwargs['SA_gt_semantic']
-            loss_depth = self.img_view_transformer.get_SA_loss(trans_feat, depth, sa_gt_depth, sa_gt_semantic)
-        else:
-            loss_depth = self.img_view_transformer.get_depth_loss(gt_depth, depth)
+        loss_depth = self.img_view_transformer.get_depth_loss(gt_depth, depth)
         losses.update(loss_depth)
         
         det_feats, occ_bev_feats, occ_vox_feats, seg_feats =  img_feats
-        if self.pts_bbox_head is not None:
-            bbox_outs = self.pts_bbox_head([det_feats])
-            losses_pts = self.pts_bbox_head.loss(gt_bboxes_3d, gt_labels_3d, bbox_outs)
-            loss_weight = {}
-            for k, v in losses_pts.items():
-                loss_weight[k] = v * self.det_loss_weight
-            losses.update(loss_weight)
-            
-        if self.occ_head is not None:
-            if 'non_vis_semantic_voxel' in list(kwargs.keys()):
-                non_vis_semantic_voxel = kwargs['non_vis_semantic_voxel']     # (B, Dx, Dy, Dz)
-            else:
-                non_vis_semantic_voxel = [None] * mask_camera.shape[0]
-            loss_occ = self.forward_occ_train(occ_bev_feats, occ_vox_feats, voxel_semantics, mask_camera, non_vis_semantic_voxel, img_inputs, depth)
-            loss_weight = {}
-            for k, v in loss_occ.items():
-                loss_weight[k] = v * self.occ_loss_weight
-            losses.update(loss_weight)
         
-        if self.seg_head is not None:
-            seg_out = self.seg_head(seg_feats)
-            gt_seg_mask = gt_seg_mask.permute(0,3,1,2)
-            losses_seg = self.seg_head.loss(seg_out, gt_seg_mask)
-            loss_weight = {}
-            for k, v in losses_seg.items():
-                loss_weight[k] = v * self.seg_loss_weight
-            losses.update(loss_weight)
+        B, N, _, orig_H, orig_W = img_inputs[0].shape
+        B, N, C, fH, fW = img_feat_list[0].shape
+        points_img_list = kwargs['points_img_list']
+        coor_list = kwargs['coor_list']
+        norm_points_list = kwargs['norm_points_list']
+        downsample = orig_H//fH
+        
+        
+        nce_loss = torch.tensor(0.0).cuda()
+        img_featue_list = []
+        voxel_feature_list = []
+        for b_id in range(B):
+            for c_id in range(N):
+                coor = coor_list[b_id][c_id]
+                norm_points = norm_points_list[b_id][c_id]
+                
+                img_feats = img_feat_list[0][b_id][c_id][:, coor[:, 1], coor[:, 0]].permute(1,0)
+                voxel_feature = nn.functional.grid_sample(occ_vox_feats[0][b_id][None], norm_points[None,None,None,], align_corners=True).squeeze(3).squeeze(2).squeeze(0).permute(1,0)
+                
+                img_featue_list.append(img_feats)
+                voxel_feature_list.append(voxel_feature)
+                
+                # cur_points = points[b_id][:,:3]
+                # cur_img_points = points_img_list[b_id][c_id]
+                # coor = torch.round(cur_img_points[:, :2] / downsample)     # (N_points, 2)  2: (u, v)
+                # depth = cur_img_points[:, 2]    # (N_points, )哦
+                # kept1 = (coor[:, 0] >= 0) & (coor[:, 0] < fW) & (coor[:, 1] >= 0) & (coor[:, 1] < fH) & (depth < self.grid_config['depth'][1]) & (depth >= self.grid_config['depth'][0])
 
-        if self.BEVseg_loss:
-            bev_preds = self.BEVseg(occ_bev_feats[0]).permute(0,3,2,1)
-            masked_semantics_gt = torch.where(mask_camera, voxel_semantics, torch.tensor(17).to(voxel_semantics))
-            
-            if self.BEVseg_loss_mode == 'softmax':
-                bev_preds=bev_preds.softmax(-1)
-                B,H,W,Z = masked_semantics_gt.shape
-                bev_values = torch.full((B,H,W), 17, dtype=masked_semantics_gt.dtype, device=masked_semantics_gt.device)
-                for z in range(Z):
-                    mask = masked_semantics_gt[:,:,:,z] != 17 
-                    bev_values[mask] = masked_semantics_gt[:,:,:,z][mask] 
-                oh_bev_semantic = F.one_hot(bev_values.long(), num_classes=18).float()[..., :17]
+                # coor, depth, cur_points = coor[kept1], depth[kept1], cur_points[kept1]
                 
-            elif self.BEVseg_loss_mode == 'sigmoid':
-                bev_preds = bev_preds.sigmoid()
-                oh_voxel_semantics = F.one_hot(masked_semantics_gt.long(), num_classes=18).float()
-                oh_bev_semantic = oh_voxel_semantics.sum(3).bool().float()[..., :17]
+                # ranks = coor[:, 0] + coor[:, 1] * fW
+                # sort = (ranks + depth / 100.).argsort()
+                # coor, depth, ranks, cur_points = coor[sort], depth[sort], ranks[sort], cur_points[sort]
+                # kept2 = torch.ones(coor.shape[0], device=coor.device, dtype=torch.bool)
+                # kept2[1:] = (ranks[1:] != ranks[:-1])
+                # coor, depth, cur_points = coor[kept2], depth[kept2], cur_points[kept2]
                 
-            bev_preds = bev_preds.reshape(-1,17)
-            bev_labels = oh_bev_semantic.reshape(-1, 17)
-            
-            fg_mask = torch.max(bev_labels, dim=1).values > 0.0
-            bev_labels = bev_labels[fg_mask]
-            bev_preds = bev_preds[fg_mask]
-            with autocast(enabled=False):
-                bev_seg_loss = F.binary_cross_entropy(
-                    bev_preds,
-                    bev_labels,
-                    reduction='none',
-                ).sum() / max(1.0, fg_mask.sum())
-            
-            losses['loss_BEV_AUX'] = bev_seg_loss * self.bevseg_loss_weight
-            
-            
-        if self.BEVseg_loss_after_pooling:
-            
-            bev_feat1 = self.BEVseg_after_pooling1(bev_feat)
-            bev_feat2 = self.BEVseg_after_pooling2(bev_feat1)
-            bev_feat3 = self.BEVseg_after_pooling3(bev_feat2)
-            bev_feat4 = self.BEVseg_after_pooling4(bev_feat3)
-            bev_feat5 = self.BEVseg_after_pooling5(bev_feat4+bev_feat2)
-            bev_preds = self.BEVseg_after_pooling_head(bev_feat5+bev_feat1)
-            bev_preds = bev_preds.permute(0,3,2,1)
-            masked_semantics_gt = torch.where(mask_camera, voxel_semantics, torch.tensor(17).to(voxel_semantics))
-            
-            if self.BEVseg_loss_mode == 'softmax':
-                bev_preds=bev_preds.softmax(-1)
-                B,H,W,Z = masked_semantics_gt.shape
-                bev_values = torch.full((B,H,W), 17, dtype=masked_semantics_gt.dtype, device=masked_semantics_gt.device)
-                for z in range(Z):
-                    mask = masked_semantics_gt[:,:,:,z] != 17 
-                    bev_values[mask] = masked_semantics_gt[:,:,:,z][mask] 
-                oh_bev_semantic = F.one_hot(bev_values.long(), num_classes=18).float()[..., :17]
+                # norm_points = torch.zeros_like(cur_points)
+                # norm_points[:,0] = (cur_points[:, 0] - self.pc_range[0]) / (self.pc_range[3] - self.pc_range[0])
+                # norm_points[:,1] = (cur_points[:, 1] - self.pc_range[1]) / (self.pc_range[4] - self.pc_range[1])
+                # norm_points[:,2] = (cur_points[:, 2] - self.pc_range[2]) / (self.pc_range[5] - self.pc_range[2])
+                # norm_points = norm_points*2-1
+                # kept3 = (norm_points[:,0] > -1) & (norm_points[:,0] < 1) & (norm_points[:,1] > -1) & (norm_points[:,1] < 1) & (norm_points[:,2] > -1) & (norm_points[:,2] < 1)
+                # coor, norm_points = coor[kept3], norm_points[kept3]
+                # coor = coor.to(torch.long)
                 
-            elif self.BEVseg_loss_mode == 'sigmoid':
-                bev_preds = bev_preds.sigmoid()
-                oh_voxel_semantics = F.one_hot(masked_semantics_gt.long(), num_classes=18).float()
-                oh_bev_semantic = oh_voxel_semantics.sum(3).bool().float()[..., :17]
+                # img_feats = img_feat_list[0][b_id][c_id][:, coor[:, 1], coor[:, 0]].permute(1,0)
+                # voxel_feature = nn.functional.grid_sample(occ_vox_feats[0][b_id][None], norm_points[None,None,None,], align_corners=True).squeeze(3).squeeze(2).squeeze(0).permute(1,0)
                 
-            bev_preds = bev_preds.reshape(-1,17)
-            bev_labels = oh_bev_semantic.reshape(-1, 17)
+                # img_featue_list.append(img_feats)
+                # voxel_feature_list.append(voxel_feature)
+                
+        img_features = torch.cat(img_featue_list)
+        voxel_features = torch.cat(voxel_feature_list)
+        if self.global_VtoP:
+            query = img_features
+            pos_key = self.VtoP_Projector(voxel_features)
+            tmp_loss = self.info_nce_loss(query, pos_key)
+            nce_loss += tmp_loss
             
-            fg_mask = torch.max(bev_labels, dim=1).values > 0.0
-            bev_labels = bev_labels[fg_mask]
-            bev_preds = bev_preds[fg_mask]
-            with autocast(enabled=False):
-                bev_seg_loss = F.binary_cross_entropy(
-                    bev_preds,
-                    bev_labels,
-                    reduction='none',
-                ).sum() / max(1.0, fg_mask.sum())
-            
-            losses['loss_BEV_AUX'] = bev_seg_loss * self.bevseg_loss_weight
+        if self.global_PtoV:
+            query = voxel_feature
+            pos_key = self.PtoV_Projector(img_feats)
+            tmp_loss = self.info_nce_loss(query, pos_key)
+            nce_loss += tmp_loss
+        nce_loss = torch.nan_to_num(nce_loss, nan=0.0)
+
+        losses['loss_pretrained'] = nce_loss
         return losses
 
     
@@ -573,7 +472,7 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
         if self.time_check:
             self.start_event.record()
             
-        img_feats, _, depth, trans_feat, bev_feat = self.extract_feat(
+        img_feats, _, depth, trans_feat, bev_feat, img_feat_list = self.extract_feat(
             points, img_inputs=img, img_metas=img_metas, **kwargs)
         
         det_feats, occ_bev_feats, occ_vox_feats, seg_feats =  img_feats
@@ -625,7 +524,7 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
         # img_feats: List[(B, C, Dz, Dy, Dx)/(B, C, Dy, Dx) , ]
         # pts_feats: None
         # depth: (B*N_views, D, fH, fW)
-        img_feats, pts_feats, depth, trans_feat, bev_feat = self.extract_feat(
+        img_feats, pts_feats, depth, trans_feat, bev_feat, img_feat_list = self.extract_feat(
             points, img_inputs=img_inputs, img_metas=img_metas, **kwargs)
         occ_bev_feature = img_feats[0]
         if self.upsample:
@@ -666,6 +565,7 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
         bev_feat_list = []
         depth_list = []
         trans_feat_list = []
+        img_feat_list = []
         key_frame = True  # back propagation for key frame only
 
         for img, sensor2keyego, ego2global, intrin, post_rot, post_tran in zip(
@@ -682,12 +582,12 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
                 if key_frame:
                     # bev_feat: (B, C, Dy, Dx)
                     # depth: (B*N_views, D, fH, fW)
-                    bev_feat, depth, trans_feat = self.prepare_bev_feat(*inputs_curr)
+                    bev_feat, depth, trans_feat, img_feat = self.prepare_bev_feat(*inputs_curr)
                     if self.down_sample_for_3d_pooling is not None:
                         bev_feat = self.down_sample_for_3d_pooling(bev_feat)
                 else:
                     with torch.no_grad():
-                        bev_feat, depth, trans_feat = self.prepare_bev_feat(*inputs_curr)
+                        bev_feat, depth, trans_feat, img_feat = self.prepare_bev_feat(*inputs_curr)
                         if self.down_sample_for_3d_pooling is not None:
                             bev_feat = self.down_sample_for_3d_pooling(bev_feat)
             else:
@@ -697,6 +597,7 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
             bev_feat_list.append(bev_feat)
             depth_list.append(depth)
             trans_feat_list.append(trans_feat)
+            img_feat_list.append(img_feat)
             key_frame = False
 
         # bev_feat_list: List[(B, C, Dy, Dx), (B, C, Dy, Dx), ...]
@@ -743,7 +644,7 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
             occ_bev_out.append(b.clone())
         occ_vox = self.voxelize_module(occ_bev) # (B, 48, 200, 200, 16) & (B, 48, 200, 200) x 3
 
-        return [det_bev, occ_bev_out, occ_vox, seg_bev], depth, trans_feat_list[0], bev_feat
+        return [det_bev, occ_bev_out, occ_vox, seg_bev], depth, trans_feat_list[0], bev_feat, img_feat_list
 
     @force_fp32()
     def bev_encoder(self, x):
