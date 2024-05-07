@@ -494,13 +494,17 @@ class PointToMultiViewDepth(object):
                  downsample=1, 
                  pc_range=[-40.0, -40.0, -1.0, 40.0, 40.0, 5.4], 
                  preprocess_for_pretrain=False, 
-                 preprocess_downsample=16):
+                 preprocess_downsample=16,
+                 coord_index=True,
+                 num_samples=None):
         self.downsample = downsample
         self.grid_config = grid_config
         
         self.pc_range = pc_range
         self.preprocess_for_pretrain = preprocess_for_pretrain
         self.preprocess_downsample = preprocess_downsample
+        self.coord_index = coord_index
+        self.num_samples = num_samples
         
     def points2depthmap(self, points, height, width):
         """
@@ -532,32 +536,43 @@ class PointToMultiViewDepth(object):
         depth_map[coor[:, 1], coor[:, 0]] = depth
         return depth_map
 
-    def preprocess_points_for_pretrain(self, points, points_img, height, width):
+    def preprocess_points_for_pretrain(self, points, points_img, height, width, lidar2lidarego):
         
         height, width = height // self.preprocess_downsample, width // self.preprocess_downsample
         cur_points = points[:,:3]
-        coor = torch.round(points_img[:, :2] / self.preprocess_downsample)     # (N_points, 2)  2: (u, v)
+        cur_points = cur_points.matmul(lidar2lidarego[:3, :3].T) + lidar2lidarego[:3, 3].unsqueeze(0)     # (N_points, 3)  3: (ud, vd, d)
+        if self.coord_index:
+            coor = torch.round(points_img[:, :2] / self.preprocess_downsample)     # (N_points, 2)  2: (u, v)
+        else:
+            coor = points_img[:, :2] / self.preprocess_downsample     # (N_points, 2)  2: (u, v)
         depth = points_img[:, 2]    # (N_points, )哦
         kept1 = (coor[:, 0] >= 0) & (coor[:, 0] < width) & (coor[:, 1] >= 0) & (coor[:, 1] < height) & (depth < self.grid_config['depth'][1]) & (depth >= self.grid_config['depth'][0])
-
         coor, depth, cur_points = coor[kept1], depth[kept1], cur_points[kept1]
         
-        ranks = coor[:, 0] + coor[:, 1] * width
-        sort = (ranks + depth / 100.).argsort()
-        coor, depth, ranks, cur_points = coor[sort], depth[sort], ranks[sort], cur_points[sort]
-        kept2 = torch.ones(coor.shape[0], device=coor.device, dtype=torch.bool)
-        kept2[1:] = (ranks[1:] != ranks[:-1])
-        coor, depth, cur_points = coor[kept2], depth[kept2], cur_points[kept2]
+        if self.coord_index:
+            ranks = coor[:, 0] + coor[:, 1] * width
+            sort = (ranks + depth / 100.).argsort()
+            coor, depth, ranks, cur_points = coor[sort], depth[sort], ranks[sort], cur_points[sort]
+            kept2 = torch.ones(coor.shape[0], device=coor.device, dtype=torch.bool)
+            kept2[1:] = (ranks[1:] != ranks[:-1])
+            coor, depth, cur_points = coor[kept2], depth[kept2], cur_points[kept2]
         
         norm_points = torch.zeros_like(cur_points)
         norm_points[:,0] = (cur_points[:, 0] - self.pc_range[0]) / (self.pc_range[3] - self.pc_range[0])
         norm_points[:,1] = (cur_points[:, 1] - self.pc_range[1]) / (self.pc_range[4] - self.pc_range[1])
         norm_points[:,2] = (cur_points[:, 2] - self.pc_range[2]) / (self.pc_range[5] - self.pc_range[2])
         norm_points = norm_points*2-1
-        
-        kept3 = (norm_points[:,0] > -1) & (norm_points[:,0] < 1) & (norm_points[:,1] > -1) & (norm_points[:,1] < 1) & (norm_points[:,2] > -1) & (norm_points[:,2] < 1)
-        coor, norm_points = coor[kept3], norm_points[kept3]
-        coor = coor.to(torch.long)
+        kept3 = (norm_points[:,0] >= -1) & (norm_points[:,0] <= 1) & (norm_points[:,1] >= -1) & (norm_points[:,1] <= 1) & (norm_points[:,2] >= -1) & (norm_points[:,2] <= 1)
+        coor, depth, norm_points = coor[kept3], depth[kept3], norm_points[kept3]
+
+        if self.num_samples is not None:
+            random_indices = torch.randperm(coor.shape[0])[:self.num_samples]
+            coor = coor[random_indices]
+            depth = depth[random_indices]
+            norm_points = norm_points[random_indices]
+
+        if self.coord_index:
+            coor = coor.to(torch.long)
                 
         return coor, norm_points
 
@@ -619,19 +634,20 @@ class PointToMultiViewDepth(object):
             # 再考虑图像增广
             points_img = points_img.matmul(
                 post_rots[cid].T) + post_trans[cid:cid + 1, :]      # (N_points, 3):  3: (u, v, d)
-            points_img_list.append(points_img)
+            points_img_list.append(points_img) # pretrain
             depth_map = self.points2depthmap(points_img,
                                              imgs.shape[2],     # H
                                              imgs.shape[3]      # W
                                              )
             depth_map_list.append(depth_map)
             
-            if self.preprocess_for_pretrain:
+            if self.preprocess_for_pretrain:  # pretrain
                 coor, norm_points = self.preprocess_points_for_pretrain(
                                 points_lidar.tensor,
                                 points_img,
                                 imgs.shape[2],     # H
-                                imgs.shape[3]      # W
+                                imgs.shape[3],      # W
+                                lidar2lidarego
                                 )
                 coor_list.append(coor)
                 norm_points_list.append(norm_points)

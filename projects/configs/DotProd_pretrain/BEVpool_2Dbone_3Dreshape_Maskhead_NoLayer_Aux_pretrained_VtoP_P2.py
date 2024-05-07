@@ -415,4 +415,4 @@ log_config = dict(
         dict(type='TensorboardLoggerHook')
     ])
 
-load_from='./work_dirs/DotProd_pretrain/BEVpool_2Dbone_3Dreshape_Maskhead_NoLayer_Aux_pretrained_VtoP_P2/epoch_2.pth'
+load_from='./work_dirs/DotProd_pretrain/BEVpool_2Dbone_3Dreshape_Maskhead_NoLayer_Aux_pretrained_VtoP_P1/epoch_12.pth'

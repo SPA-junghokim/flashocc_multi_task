@@ -139,6 +139,8 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
                  global_PtoV=False,
                  
                  time_check=False,
+                 pretrain_weight=1.0,
+                 coord_index=True,
                  **kwargs):
         img_feat_dim = kwargs['img_neck']['out_channels']
         super(BEVDetOCC_depthGT_occformer_pretrain, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
@@ -215,6 +217,8 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
             self.VtoP_Projector = nn.Linear(voxel_out_channels, img_feat_dim)
         if self.global_PtoV:
             self.PtoV_Projector = nn.Linear(img_feat_dim, voxel_out_channels)
+        self.pretrain_weight=pretrain_weight
+        self.coord_index = coord_index
 
 
         
@@ -371,12 +375,97 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
             for c_id in range(N):
                 coor = coor_list[b_id][c_id]
                 norm_points = norm_points_list[b_id][c_id]
-                
-                img_feats = img_feat_list[0][b_id][c_id][:, coor[:, 1], coor[:, 0]].permute(1,0)
+                if self.coord_index:
+                    img_feats = img_feat_list[0][b_id][c_id][:, coor[:, 1], coor[:, 0]].permute(1,0)
+                else:
+                    temp = torch.zeros_like(coor)
+                    temp[:, 0], temp[:, 1] = coor[:, 1]/fH, coor[:, 0]/fW
+                    temp = (temp * 2) - 1
+                    img_feats = nn.functional.grid_sample(img_feat_list[0][b_id][c_id][None], temp[None,None,], align_corners=True).squeeze(3).squeeze(2).squeeze(0).permute(1,0)
                 voxel_feature = nn.functional.grid_sample(occ_vox_feats[0][b_id][None], norm_points[None,None,None,], align_corners=True).squeeze(3).squeeze(2).squeeze(0).permute(1,0)
                 
                 img_featue_list.append(img_feats)
                 voxel_feature_list.append(voxel_feature)
+                # import matplotlib.pyplot as plt
+                # cur_vox = (voxel_semantics[b_id] == 1).sum(-1).bool().int().detach().cpu().numpy()
+                # b_idc = torch.arange(10)
+                # c_idc = torch.arange(10) + 90
+                # cur_vox[b_idc, c_idc] = 1
+                # plt.imsave('vox.png', cur_vox)
+                # plt.close()
+
+                
+                # cur_vox_= occ_bev_feats[0][b_id].sum(0).detach().permute(1,0).cpu().numpy()
+                # plt.imsave('vox_.png', cur_vox_)
+                # plt.close()
+                
+                # c_id_ = 4
+                # cur_point_ = norm_points_list[b_id][c_id_].detach().cpu() 
+                # cur_point = torch.zeros_like(cur_point_)
+                # cur_point[...,0] = cur_point_[...,1]
+                # cur_point[...,1] = cur_point_[...,0]
+                # # cur_point[...,0] = -cur_point_[...,0]
+                # # cur_point[...,1] = cur_point_[...,1]
+                # cur_point = (cur_point+ 1 ) * 100
+                # temp1 = torch.arange(100) * 0.001 - 1
+                # temp2 = torch.arange(100) * 0.001 
+                # temp3 = torch.arange(100) * 0.001
+                # temp_coor = torch.stack((temp1,temp2, temp3),dim=-1)
+                # cur_point = torch.cat((cur_point, temp_coor), dim= 0)
+                # num_samples = 1000
+                # random_indices = torch.randperm(cur_point.shape[0])[:num_samples]
+                # cur_point = cur_point[random_indices]
+                # plt.imshow(cur_vox_)
+                # plt.scatter(cur_point[:, 0].detach().cpu().numpy(), cur_point[:, 1].detach().cpu().numpy(), s=0.05, c='red')
+                # plt.savefig('visualization_.png', bbox_inches='tight', pad_inches=0)
+                # plt.close()
+                # cur_img = img_inputs[0][b_id][c_id_]
+                # cur_img = (cur_img - cur_img.min() )/ (cur_img.max() - cur_img.min())
+                # plt.imsave('img.png',cur_img.detach().cpu().numpy().transpose(1,2,0))
+                
+                
+                # import matplotlib.pyplot as plt
+                # c_id_ = 2
+                # plt.imsave('img.png',cur_img.detach().cpu().numpy().transpose(1,2,0))
+                # plt.imsave('gt_depth.png', gt_depth[b_id][c_id_].bool().int().detach().cpu().numpy())
+                
+                # coor = coor_list[b_id][c_id_].detach().cpu().numpy()
+                # rev_coor0 = coor[:, 0]
+                # rev_coor1 = coor[:, 1]
+                # # rev_coor0 = (coor[:, 0] * -1 ) + coor[:, 0].max()
+                # rev_coor1 = (coor[:, 1] * -1 ) + 16
+                
+                # plt.scatter(rev_coor0, rev_coor1, s=4)
+                # plt.xlim((0,44))
+                # plt.ylim((0,16))
+                # fig = plt.gcf()
+                # fig.set_size_inches(22,8)  # 원하는 크기로 조절합니다. (가로, 세로) 순서로 입력합니다.
+                # plt.axis('off')  # 축을 숨깁니다.
+                # plt.savefig('visualization_depth.png', bbox_inches='tight', pad_inches=0)
+                # plt.close()
+                
+                # cur_point = norm_points_list[b_id][c_id_]
+                # # kept3 = (cur_point[:,0] >= -1) & (cur_point[:,0] <= 1) & (cur_point[:,1] >= -1) & (cur_point[:,1] <= 1) & (cur_point[:,2] >= -1) & (cur_point[:,2] <= 1)
+                # # cur_point = cur_point[kept3]
+                # plt.scatter(cur_point[:, 0].detach().cpu().numpy(), cur_point[:, 1].detach().cpu().numpy(), s=0.1)
+                # plt.xlim((-1,1))
+                # plt.ylim((-1,1))
+                # # plt.axis('off')  # 축을 숨깁니다.
+                # plt.savefig('visualization.png', bbox_inches='tight', pad_inches=0)
+                # plt.close()
+                
+                # cur_point = norm_points_list[b_id][c_id_]
+                # kept3 = (cur_point[:,0] >= -1) & (cur_point[:,0] <= 1) & (cur_point[:,1] >= -1) & (cur_point[:,1] <= 1) & (cur_point[:,2] >= -1) & (cur_point[:,2] <= 1)
+                # cur_point = cur_point[kept3]
+                # plt.scatter(cur_point[:, 0].detach().cpu().numpy(), cur_point[:, 1].detach().cpu().numpy(), s=0.1)
+                # plt.xlim((-1,1))
+                # plt.ylim((-1,1))
+                # # plt.axis('off')  # 축을 숨깁니다.
+                # plt.savefig('visualization_.png', bbox_inches='tight', pad_inches=0)
+                # plt.close()
+                
+                
+                
                 
                 # cur_points = points[b_id][:,:3]
                 # cur_img_points = points_img_list[b_id][c_id]
@@ -423,7 +512,7 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
             nce_loss += tmp_loss
         nce_loss = torch.nan_to_num(nce_loss, nan=0.0)
 
-        losses['loss_pretrained'] = nce_loss
+        losses['loss_pretrained'] = nce_loss * self.pretrain_weight
         return losses
 
     
