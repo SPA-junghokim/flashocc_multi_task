@@ -41,16 +41,6 @@ grid_config_3dpool = {
     'z': [-1, 5.4, 6.4],
     'depth': [1.0, 45.0, 0.5],
 }
-learning_map = {
-                1: 0,   5: 0,   7: 0,   8: 0,
-                10: 0,  11: 0,  13: 0,  19: 0,
-                20: 0,  0: 0,   29: 0,  31: 0,
-                9: 1,   14: 2,  15: 3,  16: 3,
-                17: 4,  18: 5,  21: 6,  2: 7,
-                3: 7,   4: 7,   6: 7,   12: 8,
-                22: 9,  23: 10, 24: 11, 25: 12,
-                26: 13, 27: 14, 28: 15, 30: 16,
-}
 
 voxel_size = [0.1, 0.1, 0.2]
 grid_size = [200, 200, 16]
@@ -85,6 +75,9 @@ model = dict(
     only_last_layer=True,
     vox_simple_reshape=True,
     vox_aux_loss_3d=True,
+    BEVseg_loss_after_pooling=True,
+    BEV_out_channel=numC_Trans_pool,
+    BEVseg_loss_mode='sigmoid',
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
         in_dim=voxel_out_channels,
@@ -132,7 +125,6 @@ model = dict(
         collapse_z=True,
         downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
-        segmentation_loss=True
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(
@@ -190,6 +182,24 @@ model = dict(
     #     out_channels=voxel_out_channels,
     #     input_feature_index=(0, 1, 2),
     #     ),
+    aux_bev2occ_head=dict(
+        type='BEVOCCHead2D',
+        in_dim=128,
+        out_dim=256,
+        Dz=16,
+        use_mask=True,
+        num_classes=18,
+        use_predicter=True,
+        class_wise=False,
+        loss_occ=dict(
+            type='CrossEntropyLoss',
+            use_sigmoid=False,
+            ignore_index=255,
+            loss_weight=1.0,
+        ),
+        sololoss=True,
+        loss_weight=10,
+    ),
     occ_head=dict(
         type='Mask2FormerNuscOccHead',
         feat_channels=mask2former_feat_channel,
@@ -278,7 +288,6 @@ model = dict(
     det_loss_weight = 1,
     occ_loss_weight = 1,
     seg_loss_weight = 1.,
-    SA_loss=True
 )
 
 # Data
@@ -297,7 +306,6 @@ train_pipeline = [
     dict(
         type='PrepareImageInputs',
         is_train=True,
-        # load_point_label=True,
         data_config=data_config,
         sequential=True),
     dict(
@@ -315,18 +323,8 @@ train_pipeline = [
     dict(type='PointToMultiViewDepth', downsample=1, grid_config=grid_config),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
-        type='LoadLidarsegFromFile',
-        grid_config=grid_config,
-        occupancy_root="./data/nuscenes/pc_panoptic/",
-        learning_map=learning_map,
-        label_from='panoptic',
-        coord_type='LIDAR',
-        load_dim=5,
-        use_dim=5,
-        file_client_args=file_client_args),
-    dict(
         type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera', 'SA_gt_depth', 'SA_gt_semantic'])
+                                'mask_lidar', 'mask_camera'])
 ]
 
 test_pipeline = [

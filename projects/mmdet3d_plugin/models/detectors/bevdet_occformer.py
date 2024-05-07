@@ -140,6 +140,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                  BEVseg_loss_mode='softmax',
                  bevseg_loss_weight=3.0, 
                  
+                 aux_bev2occ_head=None,                 
                  only_non_empty_voxel_dot = False,
                  
                  time_check=False,
@@ -164,6 +165,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         self.BEVseg_loss_after_pooling = BEVseg_loss_after_pooling
         self.bevseg_loss_weight = bevseg_loss_weight
         self.BEVseg_loss_mode = BEVseg_loss_mode
+        
         
         if self.BEVseg_loss:
             self.BEV_out_channel=BEV_out_channel
@@ -259,7 +261,6 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
             self.seg_bev_encoder_neck = builder.build_backbone(seg_bev_encoder_neck)
         else:
             self.seg_bev_encoder_neck = None
-
         self.imgfeat_32x88 = imgfeat_32x88
         if self.imgfeat_32x88:
             self.neck_upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
@@ -280,9 +281,15 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         self.vox_aux_loss_3d = vox_aux_loss_3d
         if self.vox_aux_loss_3d:
             self.vox_aux_loss_3d_occ_head = build_head(vox_aux_loss_3d_occ_head)
+        if aux_bev2occ_head is not None:
+            self.aux_bev2occ_head = build_head(aux_bev2occ_head)
+        else:
+            self.aux_bev2occ_head = None
+            
         self.aux_test = aux_test
         
         self.only_non_empty_voxel_dot = only_non_empty_voxel_dot
+        
             
         self.time_check = time_check
         if self.time_check:
@@ -488,13 +495,12 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
             
             
         if self.BEVseg_loss_after_pooling:
-            
             bev_feat1 = self.BEVseg_after_pooling1(bev_feat)
             bev_feat2 = self.BEVseg_after_pooling2(bev_feat1)
             bev_feat3 = self.BEVseg_after_pooling3(bev_feat2)
             bev_feat4 = self.BEVseg_after_pooling4(bev_feat3)
             bev_feat5 = self.BEVseg_after_pooling5(bev_feat4+bev_feat2)
-            bev_preds = self.BEVseg_after_pooling_head(bev_feat5+bev_feat1)
+            bev_preds = self.BEVseg_after_pooling_head(bev_feat5+bev_feat1) # B, 128, 200, 200
             bev_preds = bev_preds.permute(0,3,2,1)
             masked_semantics_gt = torch.where(mask_camera, voxel_semantics, torch.tensor(17).to(voxel_semantics))
             
@@ -520,12 +526,36 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
             bev_preds = bev_preds[fg_mask]
             with autocast(enabled=False):
                 bev_seg_loss = F.binary_cross_entropy(
-                    bev_preds,
+                    bev_preds, 
                     bev_labels,
                     reduction='none',
                 ).sum() / max(1.0, fg_mask.sum())
-            
+            """
+            if self.vox_aux_loss_3d or self.only_non_empty_voxel_dot:
+                aux_occ_pred = self.vox_aux_loss_3d_occ_head(occ_vox_feats[0].permute(0,1,4,2,3))
+                if self.vox_aux_loss_3d:
+                    loss_aux_3d = self.vox_aux_loss_3d_occ_head.loss(aux_occ_pred, voxel_semantics, mask_camera,)
+                    new_loss_aux_3d = dict()
+                    for k, v in loss_aux_3d.items():
+                        new_loss_aux_3d[k+'_aux3d'] = v
+            """
+            if self.aux_bev2occ_head is not None:
+                outs = self.aux_bev2occ_head(bev_feat5+bev_feat1)
+                # assert voxel_semantics.min() >= 0 and voxel_semantics.max() <= 17
+                kwargs['bda'] = img_inputs[-1]
+                loss_aux_bev2occ = self.aux_bev2occ_head.loss(
+                    outs,  # (B, Dx, Dy, Dz, n_cls)
+                    voxel_semantics,  # (B, Dx, Dy, Dz)
+                    mask_camera,  # (B, Dx, Dy, Dz)
+                    **kwargs,
+                )
+                new_loss_aux_bev2occ = dict()
+                for k, v in loss_aux_bev2occ.items():
+                    new_loss_aux_bev2occ[k+'_BEV2OCC_aux'] = v
+            if new_loss_aux_bev2occ is not None:
+                losses.update(new_loss_aux_bev2occ)
             losses['loss_BEV_AUX'] = bev_seg_loss * self.bevseg_loss_weight
+        
         return losses
 
     

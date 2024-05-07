@@ -480,6 +480,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                  depth_threshold=1,
                  LSS_Rendervalue=False,
                  balance_cls_weight=False,
+                 PV32x88=False,
                  **kwargs):
         super(LSSViewTransformerBEVDepth, self).__init__(**kwargs)
         self.loss_depth_weight = loss_depth_weight
@@ -497,6 +498,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         self.use_depth_threhold = use_depth_threhold
         self.LSS_Rendervalue = LSS_Rendervalue
         self.balance_cls_weight = balance_cls_weight
+        self.PV32x88 = PV32x88
         
         
         if self.balance_cls_weight:
@@ -525,7 +527,18 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             **depthnet_cfg)
         
         if self.segmentation_loss:
-            self.class_predictor = nn.Sequential(
+            if self.PV32x88:
+                self.class_predictor = self.class_predictor = nn.Sequential(
+                        nn.Conv2d(self.out_channels , self.out_channels * 2, kernel_size=3, stride=1, padding=1),
+                        nn.BatchNorm2d(self.out_channels * 2),
+                        nn.ReLU(),
+                        nn.Conv2d(self.out_channels * 2, self.out_channels * 2, kernel_size=3, stride=1, padding=1),
+                        nn.BatchNorm2d(self.out_channels * 2),
+                        nn.ReLU(),
+                        nn.ConvTranspose2d(self.out_channels * 2, 18, kernel_size=4, stride=2, padding=1)
+                        )
+            else:
+                self.class_predictor = nn.Sequential(
                         nn.Conv2d(self.out_channels , self.out_channels * 2, kernel_size=3, stride=1, padding=1),
                         nn.BatchNorm2d(self.out_channels * 2),
                         nn.ReLU(),
@@ -747,17 +760,25 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         B, N, H, W = gt_semantics.shape
         num_classes = 18
         one_hot = torch.nn.functional.one_hot(gt_semantics.to(torch.int64), num_classes=num_classes)
-        one_hot = one_hot.view(B, N, H // self.downsample, self.downsample, W // self.downsample, self.downsample, num_classes)
-        class_counts = one_hot.sum(dim=(3, 5)).to(self.class_weights)
+        
+        if self.PV32x88:
+            semantic_downsample = int(self.downsample / 2)
+        else:
+            semantic_downsample = self.downsample
+            
+        one_hot = one_hot.view(B, N, H // semantic_downsample, semantic_downsample, W // semantic_downsample, semantic_downsample, num_classes)
+        class_counts = one_hot.sum(dim=(3, 5)).to(gt_semantics)
         class_counts[..., 0] = 0
-        class_counts = class_counts.to(self.class_weights)
+        class_counts = class_counts.to(gt_semantics)
         if self.balance_cls_weight:
             class_counts = class_counts * self.class_weights
             
         _, most_frequent_classes = class_counts.max(dim=-1)
-        gt_semantics = most_frequent_classes.view(B * N, H // self.downsample, W // self.downsample)
+        gt_semantics = most_frequent_classes.view(B * N, H // semantic_downsample, W // semantic_downsample)
         # gt_semantics = F.one_hot(gt_semantics.long(), num_classes=18).view(-1, 18).float()
         gt_semantics = F.one_hot(gt_semantics.long(), num_classes=18).permute(0,3,1,2).float().contiguous()
+
+
 
         B, N, H, W = gt_depths.shape
         gt_depths = gt_depths.view(
@@ -809,7 +830,15 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             
         if self.segmentation_loss:
             context_feature = self.class_predictor(semantic_preds) # 24,256,16,44
-            fg_mask = torch.max(depth_labels, dim=1).values > 0.0
+            if self.PV32x88:
+                B,C,W,H = sa_gt_depth.shape
+                semantic_downsample = int(self.downsample / 2)
+                W = int(W / self.downsample)
+                H = int(H / self.downsample)
+                upsampled_depth_labels = F.interpolate(torch.max(depth_labels, dim=1).values.view(B,C,W,H), scale_factor=2, mode='bilinear', align_corners=True)
+                fg_mask = upsampled_depth_labels.view(-1) > 0.0
+            else:
+                fg_mask = torch.max(depth_labels, dim=1).values > 0.0
             context_feature = context_feature.softmax(dim=1).permute(0, 2, 3, 1).contiguous().view(-1, 18)
             semantic_labels = semantic_labels.permute(0, 2, 3, 1).contiguous().view(-1, 18).to(context_feature)
             semantic_pred = context_feature[fg_mask]
@@ -939,7 +968,18 @@ class CRN_LSS(LSSViewTransformer):
             self.loss_depth_weight = 10    
 
         if self.segmentation_loss:
-            self.class_predictor = nn.Sequential(
+            if self.PV32x88:
+                self.class_predictor = self.class_predictor = nn.Sequential(
+                        nn.Conv2d(self.out_channels , self.out_channels * 2, kernel_size=3, stride=1, padding=1),
+                        nn.BatchNorm2d(self.out_channels * 2),
+                        nn.ReLU(),
+                        nn.Conv2d(self.out_channels * 2, self.out_channels * 2, kernel_size=3, stride=1, padding=1),
+                        nn.BatchNorm2d(self.out_channels * 2),
+                        nn.ReLU(),
+                        nn.ConvTranspose2d(self.out_channels * 2, 18, kernel_size=3, stride=2, padding=1)
+                        )
+            else:
+                self.class_predictor = nn.Sequential(
                         nn.Conv2d(self.out_channels , self.out_channels * 2, kernel_size=3, stride=1, padding=1),
                         nn.BatchNorm2d(self.out_channels * 2),
                         nn.ReLU(),
@@ -1183,6 +1223,10 @@ class CRN_LSS(LSSViewTransformer):
         B, N, H, W = gt_semantics.shape
         num_classes = 18
         one_hot = torch.nn.functional.one_hot(gt_semantics.to(torch.int64), num_classes=num_classes)
+        if self.PV32x88:
+            semantic_downsample = int(self.downsample / 2)
+        else:
+            semantic_downsample = self.downsample
         one_hot = one_hot.view(B, N, H // self.downsample, self.downsample, W // self.downsample, self.downsample, num_classes)
         class_counts = one_hot.sum(dim=(3, 5))
         class_counts[..., 0] = 0
@@ -1283,6 +1327,7 @@ class CRN_LSS(LSSViewTransformer):
             semantic_labels = semantic_labels.permute(0, 2, 3, 1).contiguous().view(-1, 18)
             semantic_pred = context_feature[fg_mask]
             semantic_labels = semantic_labels[fg_mask]
+            breakpoint()
             with autocast(enabled=False):
                 segmentation_loss = F.binary_cross_entropy(
                     semantic_pred,

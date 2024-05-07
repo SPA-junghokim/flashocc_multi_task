@@ -102,7 +102,6 @@ model = dict(
         sololoss=True,
         loss_weight=10.,
     ),
-    
     img_backbone=dict(
         type='ResNet',
         depth=50,
@@ -132,7 +131,8 @@ model = dict(
         collapse_z=True,
         downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
-        segmentation_loss=True
+        segmentation_loss=True,
+        PV32x88=True
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(

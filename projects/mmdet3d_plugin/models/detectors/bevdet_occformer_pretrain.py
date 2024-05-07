@@ -424,7 +424,6 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
         losses.update(loss_depth)
         
         det_feats, occ_bev_feats, occ_vox_feats, seg_feats =  img_feats
-        breakpoint()
         if self.pts_bbox_head is not None:
             bbox_outs = self.pts_bbox_head([det_feats])
             losses_pts = self.pts_bbox_head.loss(gt_bboxes_3d, gt_labels_3d, bbox_outs)

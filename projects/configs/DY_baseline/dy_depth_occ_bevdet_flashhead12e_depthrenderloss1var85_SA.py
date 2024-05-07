@@ -95,6 +95,7 @@ model = dict(
         depth_loss_ce=True,
         depth_render_sigmoid=True,
         segmentation_loss=True,
+        upsample_32x88=True
         ),
     img_bev_encoder_backbone=dict(
         type='CustomResNet3D',
