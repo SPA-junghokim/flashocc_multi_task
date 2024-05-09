@@ -126,9 +126,10 @@ model = dict(
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(
-        type='CustomResNet_inc',
+        type='CustomResNet_conv',
         numC_input=numC_Trans + numC_Trans_cat,
-        num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
+        num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8],
+        num_layer=[3,3,3]),
     
     img_bev_encoder_neck=dict(
         type='Custom_FPN_LSS',
