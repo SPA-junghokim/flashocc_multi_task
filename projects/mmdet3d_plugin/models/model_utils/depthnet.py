@@ -236,7 +236,6 @@ class DepthNet(nn.Module):
             depth_conv_list.append(
                 build_conv_layer(cfg=dict(type='DCN',in_channels=mid_channels,out_channels=mid_channels,
                         kernel_size=3,padding=1,groups=4,im2col_step=128,)))
-            
         depth_conv_list.append(
             nn.Conv2d(
                 mid_channels,

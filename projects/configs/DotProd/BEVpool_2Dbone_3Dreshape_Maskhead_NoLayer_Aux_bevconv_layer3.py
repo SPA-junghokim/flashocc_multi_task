@@ -64,6 +64,7 @@ if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
 else:
     numC_Trans_cat = numC_Trans
+    
 model = dict(
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
@@ -74,11 +75,7 @@ model = dict(
     only_last_layer=True,
     vox_simple_reshape=True,
     vox_aux_loss_3d=True,
-    BEVseg_loss_mode='sigmoid',
-    BEVseg_loss_beforehead=True,
-    BEV_out_channel_beforehead=voxel_out_channels,
-    BEVseg_loss_after_pooling=True,
-    BEV_out_channel_afterpooling=numC_Trans_pool,
+    
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
         in_dim=voxel_out_channels,
@@ -129,9 +126,10 @@ model = dict(
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(
-        type='CustomResNet',
+        type='CustomResNet_conv',
         numC_input=numC_Trans + numC_Trans_cat,
-        num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
+        num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8],
+        num_layer=[3,3,3]),
     
     img_bev_encoder_neck=dict(
         type='Custom_FPN_LSS',
@@ -394,8 +392,8 @@ lr_config = dict(
     warmup='linear',
     warmup_iters=200,
     warmup_ratio=0.001,
-    step=[12, ])
-runner = dict(type='EpochBasedRunner', max_epochs=12)
+    step=[24, ])
+runner = dict(type='EpochBasedRunner', max_epochs=24)
 
 custom_hooks = [
     dict(
@@ -407,8 +405,8 @@ custom_hooks = [
 
 # load_from = "ckpts/bevdet-r50-cbgs.pth"
 # fp16 = dict(loss_scale='dynamic')
-evaluation = dict(interval=3, start=12, pipeline=test_pipeline)
-checkpoint_config = dict(interval=3, max_keep_ckpts=5)
+evaluation = dict(interval=1, start=24, pipeline=test_pipeline)
+checkpoint_config = dict(interval=1, max_keep_ckpts=5)
 
 
 log_config = dict(

@@ -74,11 +74,6 @@ model = dict(
     only_last_layer=True,
     vox_simple_reshape=True,
     vox_aux_loss_3d=True,
-    BEVseg_loss_mode='sigmoid',
-    BEVseg_loss_beforehead=True,
-    BEV_out_channel_beforehead=voxel_out_channels,
-    BEVseg_loss_after_pooling=True,
-    BEV_out_channel_afterpooling=numC_Trans_pool,
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
         in_dim=voxel_out_channels,
@@ -125,7 +120,7 @@ model = dict(
         sid=False,
         collapse_z=True,
         downsample=16,
-        depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
+        depthnet_cfg=dict(use_aspp=False, use_dcn=False),
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(

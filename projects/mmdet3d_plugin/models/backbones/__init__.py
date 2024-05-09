@@ -12,5 +12,6 @@ from .inceptionnext import MetaNeXt
 from .convnext import ConvNeXt
 from .resnet_inceptblock import CustomResNet_inc
 from .resnet_convblock import CustomResNet_conv
+from .resnet_dec import CustomResNet3D_dec
 
 __all__ = ['ResNet', 'CustomResNet', 'SwinTransformer', 'RepVGG']

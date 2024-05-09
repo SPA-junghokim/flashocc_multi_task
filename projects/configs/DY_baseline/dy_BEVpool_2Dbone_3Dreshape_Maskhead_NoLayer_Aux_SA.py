@@ -41,7 +41,6 @@ grid_config_3dpool = {
     'z': [-1, 5.4, 6.4],
     'depth': [1.0, 45.0, 0.5],
 }
-
 learning_map = {
                 1: 0,   5: 0,   7: 0,   8: 0,
                 10: 0,  11: 0,  13: 0,  19: 0,
@@ -75,6 +74,7 @@ if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
 else:
     numC_Trans_cat = numC_Trans
+    
 model = dict(
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),

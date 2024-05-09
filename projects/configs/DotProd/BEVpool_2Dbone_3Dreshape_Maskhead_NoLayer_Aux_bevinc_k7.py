@@ -128,8 +128,7 @@ model = dict(
     img_bev_encoder_backbone=dict(
         type='CustomResNet_inc',
         numC_input=numC_Trans + numC_Trans_cat,
-        num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8],
-        mixer_kernel_size=7),
+        num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
     
     img_bev_encoder_neck=dict(
         type='Custom_FPN_LSS',

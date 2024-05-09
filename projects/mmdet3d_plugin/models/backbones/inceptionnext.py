@@ -11,10 +11,11 @@ from timm.models.registry import register_model
 from timm.models.layers.helpers import to_2tuple
 import logging
 
+from mmcv.runner import BaseModule
 from mmdet3d.models import BACKBONES
 import torch.utils.checkpoint as checkpoint
 
-class InceptionDWConv2d(nn.Module):
+class InceptionDWConv2d(BaseModule):
     """ Inception depthweise convolution
     """
     def __init__(self, in_channels, square_kernel_size=3, band_kernel_size=11, branch_ratio=0.125):
@@ -34,7 +35,7 @@ class InceptionDWConv2d(nn.Module):
         )
 
 
-class ConvMlp(nn.Module):
+class ConvMlp(BaseModule):
     """ MLP using 1x1 convs that keeps spatial dims
     copied from timm: https://github.com/huggingface/pytorch-image-models/blob/v0.6.11/timm/models/layers/mlp.py
     """
@@ -60,7 +61,7 @@ class ConvMlp(nn.Module):
         x = self.fc2(x)
         return x
 
-class MetaNeXtBlock(nn.Module):
+class MetaNeXtBlock(BaseModule):
     """ MetaNeXtBlock Block
     Args:
         dim (int): Number of input channels.
