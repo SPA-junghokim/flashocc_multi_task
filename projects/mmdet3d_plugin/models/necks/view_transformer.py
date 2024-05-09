@@ -528,14 +528,17 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         
         if self.segmentation_loss:
             if self.PV32x88:
-                self.class_predictor = self.class_predictor = nn.Sequential(
-                        nn.Conv2d(self.out_channels , self.out_channels * 2, kernel_size=3, stride=1, padding=1),
+                self.class_predictor = nn.Sequential(
+                        nn.ConvTranspose2d(self.out_channels, self.out_channels * 2, kernel_size=5, padding=2, stride=2, output_padding=1),
+                        nn.BatchNorm2d(self.out_channels * 2),
+                        nn.ReLU(),
+                        nn.Conv2d(self.out_channels * 2 , self.out_channels * 2, kernel_size=3, stride=1, padding=1),
                         nn.BatchNorm2d(self.out_channels * 2),
                         nn.ReLU(),
                         nn.Conv2d(self.out_channels * 2, self.out_channels * 2, kernel_size=3, stride=1, padding=1),
                         nn.BatchNorm2d(self.out_channels * 2),
                         nn.ReLU(),
-                        nn.ConvTranspose2d(self.out_channels * 2, 18, kernel_size=4, stride=2, padding=1)
+                        nn.Conv2d(self.out_channels * 2, 18, kernel_size=1, stride=1)
                         )
             else:
                 self.class_predictor = nn.Sequential(
@@ -779,6 +782,30 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         gt_semantics = F.one_hot(gt_semantics.long(), num_classes=18).permute(0,3,1,2).float().contiguous()
 
 
+        
+        if self.PV32x88:
+            B, N, H, W = gt_depths.shape
+            gt_depths_32x88 = gt_depths.view(
+                B * N,
+                H // (self.downsample//2),
+                self.downsample//2,
+                W // (self.downsample//2),
+                self.downsample//2,
+                1,
+            )
+            gt_depths_32x88 = gt_depths_32x88.permute(0, 1, 3, 5, 2, 4).contiguous()
+            gt_depths_32x88 = gt_depths_32x88.view(
+                -1, (self.downsample//2) * (self.downsample//2))
+            gt_depths_32x88_tmp = torch.where(gt_depths_32x88 == 0.0,
+                                        1e5 * torch.ones_like(gt_depths_32x88),
+                                        gt_depths_32x88)
+            gt_depths_32x88 = torch.min(gt_depths_32x88_tmp, dim=-1).values
+            gt_depths_32x88 = gt_depths_32x88.view(B * N, H // (self.downsample//2), W // (self.downsample//2))
+            gt_depths_32x88 = (gt_depths_32x88 - (self.grid_config['depth'][0] - self.grid_config['depth'][2])) / self.grid_config['depth'][2]
+            gt_depths_32x88 = torch.where((gt_depths_32x88 < self.D + 1) & (gt_depths_32x88 >= 0.0), gt_depths_32x88, torch.zeros_like(gt_depths_32x88))
+            gt_depths_32x88_onehot = F.one_hot(gt_depths_32x88.long(), num_classes=self.D + 1).view(-1, self.D + 1)[:, 1:].float()
+        else:
+            gt_depths_32x88 = None
 
         B, N, H, W = gt_depths.shape
         gt_depths = gt_depths.view(
@@ -801,12 +828,13 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         gt_depths = torch.where((gt_depths < self.D + 1) & (gt_depths >= 0.0), gt_depths, torch.zeros_like(gt_depths))
         gt_depths_onehot = F.one_hot(gt_depths.long(), num_classes=self.D + 1).view(-1, self.D + 1)[:, 1:].float()
         gt_depths = gt_depths - (self.grid_config['depth'][0] + self.grid_config['depth'][2])
-        return gt_depths, gt_depths_onehot, gt_semantics
+        
+        return gt_depths, gt_depths_onehot, gt_semantics, gt_depths_32x88_onehot
     
     @force_fp32()
     def get_SA_loss(self, semantic_preds, depth_preds, sa_gt_depth, sa_gt_semantic):
         depth_loss_dict = dict()
-        depth_labels_value, depth_labels, semantic_labels = self.get_downsampled_gt_depth_and_semantic(sa_gt_depth, sa_gt_semantic)
+        depth_labels_value, depth_labels, semantic_labels, depth_labels_32x88 = self.get_downsampled_gt_depth_and_semantic(sa_gt_depth, sa_gt_semantic)
         
         if self.dpeht_render_loss:
             C,num_bins,feature_h,feature_w= depth_preds.shape
@@ -835,8 +863,8 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                 semantic_downsample = int(self.downsample / 2)
                 W = int(W / self.downsample)
                 H = int(H / self.downsample)
-                upsampled_depth_labels = F.interpolate(torch.max(depth_labels, dim=1).values.view(B,C,W,H), scale_factor=2, mode='bilinear', align_corners=True)
-                fg_mask = upsampled_depth_labels.view(-1) > 0.0
+                
+                fg_mask = torch.max(depth_labels_32x88, dim=1).values > 0.0
             else:
                 fg_mask = torch.max(depth_labels, dim=1).values > 0.0
             context_feature = context_feature.softmax(dim=1).permute(0, 2, 3, 1).contiguous().view(-1, 18)
