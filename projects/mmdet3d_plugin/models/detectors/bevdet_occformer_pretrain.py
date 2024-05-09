@@ -386,43 +386,42 @@ class BEVDetOCC_depthGT_occformer_pretrain(BEVDepth4D):
                 
                 img_featue_list.append(img_feats)
                 voxel_feature_list.append(voxel_feature)
-                # import matplotlib.pyplot as plt
-                # cur_vox = (voxel_semantics[b_id] == 1).sum(-1).bool().int().detach().cpu().numpy()
-                # b_idc = torch.arange(10)
-                # c_idc = torch.arange(10) + 90
-                # cur_vox[b_idc, c_idc] = 1
-                # plt.imsave('vox.png', cur_vox)
-                # plt.close()
+                if False:
+                    import matplotlib.pyplot as plt
+                    # cur_vox = (voxel_semantics[b_id] == 1).sum(-1).bool().int().detach().cpu().numpy()
+                    # b_idc = torch.arange(10)
+                    # c_idc = torch.arange(10) + 90
+                    # cur_vox[b_idc, c_idc] = 1
+                    # plt.imsave('vox.png', cur_vox)
+                    # plt.close()
 
-                
-                # cur_vox_= occ_bev_feats[0][b_id].sum(0).detach().permute(1,0).cpu().numpy()
-                # plt.imsave('vox_.png', cur_vox_)
-                # plt.close()
-                
-                # c_id_ = 4
-                # cur_point_ = norm_points_list[b_id][c_id_].detach().cpu() 
-                # cur_point = torch.zeros_like(cur_point_)
-                # cur_point[...,0] = cur_point_[...,1]
-                # cur_point[...,1] = cur_point_[...,0]
-                # # cur_point[...,0] = -cur_point_[...,0]
-                # # cur_point[...,1] = cur_point_[...,1]
-                # cur_point = (cur_point+ 1 ) * 100
-                # temp1 = torch.arange(100) * 0.001 - 1
-                # temp2 = torch.arange(100) * 0.001 
-                # temp3 = torch.arange(100) * 0.001
-                # temp_coor = torch.stack((temp1,temp2, temp3),dim=-1)
-                # cur_point = torch.cat((cur_point, temp_coor), dim= 0)
-                # num_samples = 1000
-                # random_indices = torch.randperm(cur_point.shape[0])[:num_samples]
-                # cur_point = cur_point[random_indices]
-                # plt.imshow(cur_vox_)
-                # plt.scatter(cur_point[:, 0].detach().cpu().numpy(), cur_point[:, 1].detach().cpu().numpy(), s=0.05, c='red')
-                # plt.savefig('visualization_.png', bbox_inches='tight', pad_inches=0)
-                # plt.close()
-                # cur_img = img_inputs[0][b_id][c_id_]
-                # cur_img = (cur_img - cur_img.min() )/ (cur_img.max() - cur_img.min())
-                # plt.imsave('img.png',cur_img.detach().cpu().numpy().transpose(1,2,0))
-                
+                    
+                    # cur_vox_= occ_bev_feats[0][b_id].sum(0).detach().permute(1,0).cpu().numpy()
+                    # plt.imsave('vox_.png', cur_vox_)
+                    # plt.close()
+                    for i in range(10):
+                        c_id_ = 4
+                        cur_point_ = norm_points_list[b_id][c_id_].detach().cpu() 
+                        cur_point = torch.zeros_like(cur_point_)
+                        cur_point[...,0] = cur_point_[...,1]
+                        cur_point[...,1] = cur_point_[...,0]
+                        # cur_point[...,0] = -cur_point_[...,0]
+                        # cur_point[...,1] = cur_point_[...,1]
+                        # cur_point = (cur_point+ 1 ) * 100
+                        # cur_point = torch.cat((cur_point, temp_coor), dim= 0)
+                        
+                        num_samples = 1000
+                        random_indices = torch.randperm(cur_point.shape[0])[:num_samples]
+                        cur_point = cur_point[random_indices]
+                        # plt.imshow(cur_vox_)
+                        plt.scatter(cur_point[:, 0].detach().cpu().numpy(), cur_point[:, 1].detach().cpu().numpy(), s=0.02, c='red')
+                        # plt.xlim((-1,1))
+                        # plt.ylim((-1,1))
+                        plt.savefig(f'visual/visualization_{c_id_}_{num_samples}_{i}.png', bbox_inches='tight', pad_inches=0)
+                        plt.close()
+                    # cur_img = img_inputs[0][b_id][c_id_]
+                    # cur_img = (cur_img - cur_img.min() )/ (cur_img.max() - cur_img.min())
+                    # plt.imsave('img.png',cur_img.detach().cpu().numpy().transpose(1,2,0))
                 
                 # import matplotlib.pyplot as plt
                 # c_id_ = 2
