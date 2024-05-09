@@ -120,7 +120,6 @@ model = dict(
         out_channels=numC_Trans_pool,
         sid=False,
         downsample=16,
-        segmentation_loss=True,
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(
