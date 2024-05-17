@@ -25,6 +25,8 @@ class voxelize_module(nn.Module):
             in_dim=96,
             only_last_layer=False,
             vox_simple_reshape=False,
+            voxelize_patent_Z=False,
+            voxelize_patent_HW=False,
     ):
         super(voxelize_module, self).__init__()
         self.bev_h_list = bev_h_list
@@ -42,6 +44,9 @@ class voxelize_module(nn.Module):
         self.only_last_layer = only_last_layer
         self.vox_simple_reshape = vox_simple_reshape
         
+        self.voxelize_patent_Z = voxelize_patent_Z
+        self.voxelize_patent_HW = voxelize_patent_HW
+        
         if self.only_last_layer:
             if self.vox_simple_reshape:
                 self.linear = nn.Sequential(
@@ -50,9 +55,15 @@ class voxelize_module(nn.Module):
                     nn.Linear(2*in_dim, self.bev_z_list[0] * in_dim),
                 )
             else:
-                self.linear = nn.Linear(in_dim, self.bev_z_list[0])
-                self.zembedding_linear = nn.Linear(in_dim, self.bev_z_list[0]*in_dim)
-                self.avg_pool = nn.AvgPool2d((self.bev_h_list[0], self.bev_w_list[0]))
+                if self.voxelize_patent_Z:
+                    self.linear = nn.Linear(in_dim, self.bev_z_list[0])
+                elif self.voxelize_patent_HW:
+                    self.zembedding_linear = nn.Linear(in_dim, self.bev_z_list[0]*in_dim)
+                    self.avg_pool = nn.AvgPool2d((self.bev_h_list[0], self.bev_w_list[0]))
+                else:
+                    self.linear = nn.Linear(in_dim, self.bev_z_list[0])
+                    self.zembedding_linear = nn.Linear(in_dim, self.bev_z_list[0]*in_dim)
+                    self.avg_pool = nn.AvgPool2d((self.bev_h_list[0], self.bev_w_list[0]))
         else:
             for i in range(self.num_scale):
                 self.linear.append(nn.Linear(in_dim, self.bev_z_list[i]))
@@ -72,11 +83,19 @@ class voxelize_module(nn.Module):
                 B, H, W, C_Z = x_linear.shape
                 x[0] = x_linear.reshape(B, H, W, self.bev_z_list[0], -1).permute(0,4,1,2,3)
             else:
-                attn_weight = self.sig(self.linear(x[0].permute(0,2,3,1)))[:,None]
-                pooled_feat = self.avg_pool(x[0]).squeeze()
-                zembedding = self.sig(self.zembedding_linear(pooled_feat).reshape(bs, -1, self.bev_z_list[0]))
-                x[0] = attn_weight * x[0][...,None]
-                x[0] = x[0] * zembedding[:, :, None, None, :] # [[B, 256, 200, 200, 16]
+                if self.voxelize_patent_Z:
+                    attn_weight = self.sig(self.linear(x[0].permute(0,2,3,1)))[:,None]
+                    x[0] = attn_weight * x[0][...,None]
+                elif self.voxelize_patent_HW:
+                    pooled_feat = self.avg_pool(x[0]).squeeze()
+                    zembedding = self.sig(self.zembedding_linear(pooled_feat).reshape(bs, -1, self.bev_z_list[0]))
+                    x[0] = x[0][...,None] * zembedding[:, :, None, None, :] # [[B, 256, 200, 200, 16]
+                else:
+                    attn_weight = self.sig(self.linear(x[0].permute(0,2,3,1)))[:,None]
+                    pooled_feat = self.avg_pool(x[0]).squeeze()
+                    zembedding = self.sig(self.zembedding_linear(pooled_feat).reshape(bs, -1, self.bev_z_list[0]))
+                    x[0] = attn_weight * x[0][...,None]
+                    x[0] = x[0] * zembedding[:, :, None, None, :] # [[B, 256, 200, 200, 16]
         else:
             for i in range(self.num_scale):
                 attn_weight = self.sig(self.linear[i](x[i].permute(0,2,3,1)))[:,None]
@@ -146,6 +165,8 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                  
                  test_merge=True,
                  
+                 voxelize_patent_Z=False,
+                 voxelize_patent_HW=False,
                  time_check=False,
                  **kwargs):
         super(BEVDetOCC_depthGT_occformer, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
@@ -279,7 +300,9 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
             after_voxelize_add = after_voxelize_add,
             in_dim=voxel_out_channels,
             only_last_layer=only_last_layer,
-            vox_simple_reshape=vox_simple_reshape)
+            vox_simple_reshape=vox_simple_reshape,
+            voxelize_patent_Z=voxelize_patent_Z,
+            voxelize_patent_HW=voxelize_patent_HW,)
         
             
         self.bev_neck_deform = bev_neck_deform
