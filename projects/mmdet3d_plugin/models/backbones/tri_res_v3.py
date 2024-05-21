@@ -17,6 +17,7 @@ class CustomTriResV3(nn.Module):
             img_bev_encoder_neck,
             grid_config,
             num_planes=3,
+            out_channel=None,
             out_enc=True):
         super(CustomTriResV3, self).__init__()
         self.create_grid_infos(**grid_config)
@@ -42,9 +43,11 @@ class CustomTriResV3(nn.Module):
                 builder.build_neck(img_bev_encoder_neck))
         self.out = out_enc
         if out_enc:
+            if out_channel is not None:
+                out_channel = self.channels
             self.out_enc = nn.Sequential(
-                nn.Conv3d(self.channels, self.channels, kernel_size=1),
-                nn.BatchNorm3d(self.channels),
+                nn.Conv3d(self.channels, out_channel, kernel_size=1),
+                nn.BatchNorm3d(out_channel),
                 nn.ReLU()
             )
         
@@ -65,7 +68,7 @@ class CustomTriResV3(nn.Module):
                                                     self.dec_linear,
                                                     self.encoder_backbones, 
                                                     self.encoder_necks)):
-            res = x.clone()
+            res = x.clone() # 1, 32, 16, 200, 200
             x = x.reshape(x.shape[0], -1, *x.shape[3:])
             x = enc(x)
             x = neck(backbone(x))

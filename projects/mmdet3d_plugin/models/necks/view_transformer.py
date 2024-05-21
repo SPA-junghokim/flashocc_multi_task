@@ -887,7 +887,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             gt_depths_32x88 = torch.where((gt_depths_32x88 < self.D + 1) & (gt_depths_32x88 >= 0.0), gt_depths_32x88, torch.zeros_like(gt_depths_32x88))
             gt_depths_32x88_onehot = F.one_hot(gt_depths_32x88.long(), num_classes=self.D + 1).view(-1, self.D + 1)[:, 1:].float()
         else:
-            gt_depths_32x88 = None
+            gt_depths_32x88_onehot = None
 
         B, N, H, W = gt_depths.shape
         gt_depths = gt_depths.view(
