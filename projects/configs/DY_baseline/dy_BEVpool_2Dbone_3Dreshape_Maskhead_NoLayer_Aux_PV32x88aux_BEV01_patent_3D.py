@@ -41,6 +41,16 @@ grid_config_3dpool = {
     'z': [-1, 5.4, 6.4],
     'depth': [1.0, 45.0, 0.5],
 }
+learning_map = {
+                1: 0,   5: 0,   7: 0,   8: 0,
+                10: 0,  11: 0,  13: 0,  19: 0,
+                20: 0,  0: 0,   29: 0,  31: 0,
+                9: 1,   14: 2,  15: 3,  16: 3,
+                17: 4,  18: 5,  21: 6,  2: 7,
+                3: 7,   4: 7,   6: 7,   12: 8,
+                22: 9,  23: 10, 24: 11, 25: 12,
+                26: 13, 27: 14, 28: 15, 30: 16,
+}
 
 voxel_size = [0.1, 0.1, 0.2]
 grid_size = [200, 200, 16]
@@ -64,10 +74,11 @@ if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
 else:
     numC_Trans_cat = numC_Trans
+    
 model = dict(
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
-    type='BEVDetOCC_depthGT_occformer',
+    type='BEVDetOCC_depthGT_occformer_BEVaux',
     pc_range = point_cloud_range,
     grid_size = grid_size,
     voxel_out_channels = voxel_out_channels,
@@ -121,6 +132,8 @@ model = dict(
         collapse_z=True,
         downsample=16,
         depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
+        segmentation_loss=True,
+        PV32x88=True
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(
@@ -178,11 +191,10 @@ model = dict(
     #     out_channels=voxel_out_channels,
     #     input_feature_index=(0, 1, 2),
     #     ),
-    aux_bev2occ_head=dict(
-        type='BEVOCCHead2D',
-        in_dim=128,
-        out_dim=256,
-        Dz=16,
+    BEV0=dict(
+        type='BEVOCCHead3D',
+        in_dim=numC_Trans_pool,
+        out_dim=32,
         use_mask=True,
         num_classes=18,
         use_predicter=True,
@@ -191,11 +203,45 @@ model = dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
             ignore_index=255,
-            loss_weight=1.0,
+            loss_weight=1.0
         ),
         sololoss=True,
-        loss_weight=10,
+        loss_weight=10.,
     ),
+    BEV1=dict(
+        type='BEVOCCHead3D',
+        in_dim=numC_Trans_pool,
+        out_dim=32,
+        use_mask=True,
+        num_classes=18,
+        use_predicter=True,
+        class_wise=False,
+        loss_occ=dict(
+            type='CrossEntropyLoss',
+            use_sigmoid=False,
+            ignore_index=255,
+            loss_weight=1.0
+        ),
+        sololoss=True,
+        loss_weight=10.,
+    ),
+    # BEV2=dict(
+    #     type='BEVOCCHead3D',
+    #     in_dim=numC_Trans_pool,
+    #     out_dim=32,
+    #     use_mask=True,
+    #     num_classes=18,
+    #     use_predicter=True,
+    #     class_wise=False,
+    #     loss_occ=dict(
+    #         type='CrossEntropyLoss',
+    #         use_sigmoid=False,
+    #         ignore_index=255,
+    #         loss_weight=1.0
+    #     ),
+    #     sololoss=True,
+    #     loss_weight=10.,
+    # ),
     occ_head=dict(
         type='Mask2FormerNuscOccHead',
         feat_channels=mask2former_feat_channel,
@@ -278,12 +324,13 @@ model = dict(
         lovasz_flatten=True,
         consider_visible_mask = True,
         learned_pos_embed=True,
-
     ),
     after_voxelize_add = True,
     det_loss_weight = 1,
     occ_loss_weight = 1,
     seg_loss_weight = 1.,
+    SA_loss=True,
+    BEV2OCC_3Dhead=True,
 )
 
 # Data
@@ -302,6 +349,7 @@ train_pipeline = [
     dict(
         type='PrepareImageInputs',
         is_train=True,
+        # load_point_label=True,
         data_config=data_config,
         sequential=True),
     dict(
@@ -319,8 +367,18 @@ train_pipeline = [
     dict(type='PointToMultiViewDepth', downsample=1, grid_config=grid_config),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
+        type='LoadLidarsegFromFile',
+        grid_config=grid_config,
+        occupancy_root="./data/nuscenes/pc_panoptic/",
+        learning_map=learning_map,
+        label_from='panoptic',
+        coord_type='LIDAR',
+        load_dim=5,
+        use_dim=5,
+        file_client_args=file_client_args),
+    dict(
         type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera'])
+                                'mask_lidar', 'mask_camera', 'SA_gt_depth', 'SA_gt_semantic'])
 ]
 
 test_pipeline = [

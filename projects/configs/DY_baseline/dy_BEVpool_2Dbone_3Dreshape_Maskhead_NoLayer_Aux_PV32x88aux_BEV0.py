@@ -74,7 +74,6 @@ if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
 else:
     numC_Trans_cat = numC_Trans
-    
 model = dict(
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),

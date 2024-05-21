@@ -36,7 +36,7 @@ class BEVDet4D(BEVDet):
 
         self.align_after_view_transfromation = align_after_view_transfromation
         self.num_frame = num_adj + 1
-
+        
         self.with_prev = with_prev
         self.grid = None
 
