@@ -364,7 +364,7 @@ class DepthNet(nn.Module):
         return cost_volumn
     # ----------------------------------------- 用于建立cost volume --------------------------------------
 
-    def forward(self, x, mlp_input, stereo_metas=None, ea_lss=False):
+    def forward(self, x, mlp_input, stereo_metas=None):
         """
         Args:
             x: (B*N_views, C, fH, fW)
