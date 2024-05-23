@@ -132,8 +132,7 @@ model = dict(
         sid=False,
         collapse_z=True,
         downsample=16,
-        depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
-        conv_depth_net = True,
+        depthnet_cfg=dict(use_aspp=False, use_dcn=False),
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(

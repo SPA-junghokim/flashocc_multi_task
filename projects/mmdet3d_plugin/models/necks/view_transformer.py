@@ -482,7 +482,6 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                  balance_cls_weight=False,
                  PV32x88=False,
                  average_pool=False,
-                 conv_depth_net = False,
                  **kwargs):
         super(LSSViewTransformerBEVDepth, self).__init__(**kwargs)
         self.loss_depth_weight = loss_depth_weight
@@ -537,21 +536,13 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             min_ida_scale = 1 if min_ida_scale == 0 else min_ida_scale
             self.min_focal_length = min_focal_length * min_ida_scale
         
-        if conv_depth_net:
-            self.depth_net = CRN_DepthNet(
-                in_channels=self.in_channels,
-                mid_channels=self.in_channels,
-                context_channels=self.out_channels,
-                depth_channels=self.depth_channels,
-                )
-        else:
-            self.depth_net = DepthNet(
-                in_channels=self.in_channels,
-                mid_channels=self.in_channels,
-                context_channels=self.out_channels,
-                depth_channels=self.depth_channels,
-                virtual_depth=self.virtual_depth,
-                **depthnet_cfg)
+        self.depth_net = DepthNet(
+            in_channels=self.in_channels,
+            mid_channels=self.in_channels,
+            context_channels=self.out_channels,
+            depth_channels=self.depth_channels,
+            virtual_depth=self.virtual_depth,
+            **depthnet_cfg)
         
         if self.segmentation_loss:
             if self.PV32x88:

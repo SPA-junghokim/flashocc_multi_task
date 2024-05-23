@@ -677,8 +677,6 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         depth = depth_digit.softmax(dim=1)  # (B*N_views, D, fH, fW)
         if self.LSS_Rendervalue:
             depth = self.rendering_value
-        else:
-            depth = depth_digit.softmax(dim=1)  # (B*N_views, D, fH, fW)
 
         if self.use_depth_threhold:
             kept = (depth >= self.depth_threshold)
