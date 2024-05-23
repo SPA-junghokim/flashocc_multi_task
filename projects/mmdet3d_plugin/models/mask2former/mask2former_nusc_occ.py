@@ -95,13 +95,20 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
                  point_sample_for_dn= False,
                  only_non_empty_voxel_dot=False,
                  empty_weight01=False,
+                 query_PV_aux=False,
+                 PV_feat_dim = 64,
                  test_merge=False,
                  **kwargs):
         super(AnchorFreeHead, self).__init__(init_cfg)
         self.num_occupancy_classes = num_occupancy_classes
         self.num_queries = num_queries
         self.point_cloud_range = point_cloud_range
-        
+        self.query_PV_aux = query_PV_aux
+        if self.query_PV_aux:
+            self.PV_mask_embed = nn.Sequential(
+                nn.Linear(feat_channels, feat_channels), nn.ReLU(inplace=True),
+                nn.Linear(feat_channels, feat_channels), nn.ReLU(inplace=True),
+                nn.Linear(feat_channels, PV_feat_dim))
         ''' Transformer Decoder Related '''
         # number of multi-scale features for masked attention
         self.num_transformer_feat_level = num_transformer_feat_level
@@ -379,7 +386,11 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
     
     @force_fp32(apply_to=('all_cls_scores', 'all_mask_preds'))
     def loss(self, all_cls_scores, all_mask_preds, gt_labels_list, 
-             gt_masks_list, gt_binary_list, gt_occ, mask_camera, img_metas, dn_args):
+             gt_masks_list, gt_binary_list, gt_occ, mask_camera, img_metas, dn_args, 
+             all_PV_mask_preds,
+             semantic_labels_PV, 
+             PV_fg_mask,
+             ):
         """Loss function.
 
         Args:
@@ -404,11 +415,15 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         all_gt_masks_list = [gt_masks_list for _ in range(num_dec_layers)]
         all_gt_binary_list = [gt_binary_list for _ in range(num_dec_layers)]
         all_mask_camera = [mask_camera for _ in range(num_dec_layers)]
-        
         img_metas_list = [img_metas for _ in range(num_dec_layers)]
-        losses_cls, losses_mask, losses_loavsz, losses_dice, all_point_coords = multi_apply(
+        
+        semantic_labels_PV_list = [semantic_labels_PV for _ in range(num_dec_layers)]
+        PV_fg_mask_list = [PV_fg_mask for _ in range(num_dec_layers)]
+
+        losses_cls, losses_mask, losses_loavsz, losses_dice, all_point_coords, loss_dice_PV, loss_mask_PV = multi_apply(
             self.loss_single, all_cls_scores, all_mask_preds,
-            all_gt_labels_list, all_gt_masks_list, all_gt_binary_list, all_mask_camera, img_metas_list)
+            all_gt_labels_list, all_gt_masks_list, all_gt_binary_list, all_mask_camera, img_metas_list,
+            all_PV_mask_preds, semantic_labels_PV_list, PV_fg_mask_list)
 
         loss_dict = dict()
         # loss from the last decoder layer
@@ -417,7 +432,10 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         loss_dict['loss_dice'] = losses_dice[-1]
         if self.loss_lovasz:
             loss_dict['loss_loavsz'] = losses_loavsz[-1]
-
+        if self.query_PV_aux:
+            loss_dict['loss_dice_PV_query_aux'] = loss_dice_PV[-1]
+            loss_dict['loss_mask_PV_query_aux'] = loss_mask_PV[-1]
+            
         num_dec_layer = 0
         for loss_cls_i, loss_mask_i, losses_loavsz_i, loss_dice_i in zip(losses_cls[:-1], losses_mask[:-1], losses_loavsz[:-1], losses_dice[:-1]):
             loss_dict[f'd{num_dec_layer}.loss_cls'] = loss_cls_i
@@ -543,12 +561,14 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         mask_point_targets = mask_point_targets.reshape(-1)
         loss_mask = self.loss_mask(mask_point_preds,mask_point_targets,avg_factor=num_total_mask_weights * self.num_points,)
         
+        
         if self.loss_lovasz == False: loss_lovasz=None
         return loss_cls, loss_mask, loss_lovasz, loss_dice
 
 
     def loss_single(self, cls_scores, mask_preds, gt_labels_list,
-                    gt_masks_list, gt_binary_list, mask_camera, img_metas):
+                    gt_masks_list, gt_binary_list, mask_camera, img_metas, 
+                    all_PV_mask_preds, semantic_labels_PV_list, PV_fg_mask_list):
         num_imgs = cls_scores.size(0)
         cls_scores_list = [cls_scores[i] for i in range(num_imgs)]
         mask_preds_list = [mask_preds[i] for i in range(num_imgs)]
@@ -621,6 +641,17 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         
         # mask_preds = mask_preds[no_none_list]
         mask_preds = mask_preds[mask_weights > 0] # [14, 200, 200, 16] / [18, 200, 200, 16]
+        if self.query_PV_aux:
+            PV_fg_mask_list = PV_fg_mask_list.reshape(*all_PV_mask_preds.shape[:2], 16, 44)
+            PV_fg_mask_list_ = []
+            PV_mask_preds_list_ = []
+
+            for b_id in range(len(PV_fg_mask_list)):
+                PV_fg_mask_list_.append(PV_fg_mask_list[b_id][None].repeat(mask_weights.sum(-1)[b_id].long(), 1,1,1 ))
+                PV_mask_preds_list_.append(all_PV_mask_preds.permute(0,2,1,3,4)[b_id][mask_weights[b_id] > 0])
+            PV_fg_mask_list = torch.cat(PV_fg_mask_list_, dim=0)
+            all_PV_mask_preds = all_PV_mask_preds.permute(0,2,1,3,4)[mask_weights > 0]
+            
         mask_weights = mask_weights[mask_weights > 0] # 14 100개 중 14개만 1 / 18
         
         if mask_targets.shape[0] == 0:
@@ -649,7 +680,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             mask_point_targets = point_sample_3d(mask_targets.unsqueeze(1).float(), point_coords, padding_mode=self.padding_mode).squeeze(1)
         num_total_mask_weights = reduce_mean(mask_weights.sum())
 
-        loss_dice = self.loss_dice(mask_point_preds, mask_point_targets, weight=mask_weights, avg_factor=num_total_mask_weights)
+        loss_dice = self.loss_dice(mask_point_preds, mask_point_targets, weight=mask_weights, avg_factor=num_total_mask_weights) # 44, 37632
         if self.loss_lovasz:
             for i in range(len(gt_labels_list)):
                 if i == 0: start = 0
@@ -681,10 +712,28 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             mask_point_targets,
             avg_factor=num_total_mask_weights * self.num_points,
         )
+        
+        if self.query_PV_aux:
+            PV_gt_list_ = []
+            loss_dice_PV = torch.tensor(0.0).to(loss_mask)
+            for b_id in range(len(semantic_labels_PV_list)):
+                PV_gt_list_.append(semantic_labels_PV_list[b_id])
+            PV_gt_list = torch.cat(PV_gt_list_,dim=0)
 
-
+            for i in range(PV_gt_list.shape[0]):
+                loss_dice_PV += self.loss_dice(PV_gt_list[i][PV_fg_mask_list[i]][None], all_PV_mask_preds[i][PV_fg_mask_list[i]][None])
+                
+            loss_dice_PV = loss_dice_PV / PV_gt_list.shape[0]
+            
+            PV_gt = PV_gt_list[PV_fg_mask_list]
+            PV_preds = all_PV_mask_preds[PV_fg_mask_list]
+            loss_mask_PV = self.loss_mask(PV_preds,PV_gt,avg_factor=PV_preds.shape[0])
+        
+        else:
+            loss_dice_PV, loss_mask_PV = None, None
+            
         if self.loss_lovasz == False: loss_lovasz=None
-        return loss_cls, loss_mask, loss_lovasz, loss_dice, point_coords
+        return loss_cls, loss_mask, loss_lovasz, loss_dice, point_coords, loss_dice_PV, loss_mask_PV
 
 
     def forward_head_only_non_empty_vox(self, decoder_out, mask_feature, attn_mask_target_size, occ_pred):
@@ -718,7 +767,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         return cls_pred, mask_pred, attn_mask
 
 
-    def forward_head(self, decoder_out, mask_feature, attn_mask_target_size):
+    def forward_head(self, decoder_out, mask_feature, attn_mask_target_size, trans_feat=None):
         """Forward for head part which is called after every decoder layer.
 
         Args:
@@ -745,6 +794,12 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         # shape (batch_size, num_queries, c)
         mask_embed = self.mask_embed(decoder_out)
         # shape (batch_size, num_queries, h, w)
+        if self.query_PV_aux and trans_feat is not None:
+            trans_mask_embed = self.PV_mask_embed(decoder_out)
+            PV_mask_pred = torch.einsum('bqc,bnchw->bnqhw', trans_mask_embed, trans_feat)
+        else:
+            PV_mask_pred=None
+            
         mask_pred = torch.einsum('bqc,bcxyz->bqxyz', mask_embed, mask_feature)
 
         ''' 对于一些样本数量较少的类别来说，经过 trilinear 插值 + 0.5 阈值，正样本直接消失 '''
@@ -766,14 +821,18 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
 
         else:
             attn_mask = None 
-        return cls_pred, mask_pred, attn_mask
+        return cls_pred, mask_pred, attn_mask, PV_mask_pred
 
-    def preprocess_gt(self, gt_occ, img_metas):
+    def preprocess_gt(self, gt_occ, img_metas, semantic_labels_PV):
         num_class_list = [self.num_occupancy_classes] * len(img_metas)
-        targets = multi_apply(preprocess_occupancy_gt, gt_occ, num_class_list, img_metas)
+        if semantic_labels_PV is not None:
+            semantic_labels_PV = semantic_labels_PV.reshape(len(img_metas), -1, *semantic_labels_PV.shape[1:])
+        else:
+            semantic_labels_PV = [semantic_labels_PV] * len(img_metas)
+        targets = multi_apply(preprocess_occupancy_gt, gt_occ, num_class_list, img_metas, semantic_labels_PV)
         
-        labels, masks, binary_mask = targets
-        return labels, masks, binary_mask
+        labels, masks, binary_mask, PV_masks= targets
+        return labels, masks, binary_mask, PV_masks
 
     def forward_train(self,
             voxel_feats,
@@ -782,15 +841,22 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             mask_camera,
             non_vis_semantic_voxel,
             occ_pred,
+            trans_feat,
+            semantic_labels_PV, 
+            PV_fg_mask,
             **kwargs,
         ):
-        gt_labels, gt_masks, gt_binaries = self.preprocess_gt(gt_occ, img_metas)
-        all_cls_scores, all_mask_preds, dn_args = self(voxel_feats, img_metas, occ_pred, targets=dict(gt_labels=gt_labels,
+        gt_labels, gt_masks, gt_binaries, PV_masks = self.preprocess_gt(gt_occ, img_metas, semantic_labels_PV)
+        all_cls_scores, all_mask_preds, dn_args, all_PV_mask_preds = self(voxel_feats, img_metas, occ_pred, targets=dict(gt_labels=gt_labels,
                                                                                    gt_masks=gt_masks,
-                                                                                   gt_binaries= gt_binaries,))
+                                                                                   gt_binaries= gt_binaries,),
+                                                                                trans_feat=trans_feat)
 
         # loss
-        losses = self.loss(all_cls_scores, all_mask_preds, gt_labels, gt_masks, gt_binaries, gt_occ, mask_camera, img_metas, dn_args)
+        losses = self.loss(all_cls_scores, all_mask_preds, gt_labels, gt_masks, gt_binaries, gt_occ, mask_camera, img_metas, dn_args, 
+                            all_PV_mask_preds,
+                            PV_masks, 
+                            PV_fg_mask)
 
         return losses
 
@@ -932,6 +998,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             img_metas,
             occ_pred,
             targets=None,
+            trans_feat=None,
             **kwargs,
         ):
         """Forward function.
@@ -1013,16 +1080,20 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         ''' directly deocde the learnable queries, as simple proposals '''
         cls_pred_list = []
         mask_pred_list = []
+        PV_mask_pred_list = []
         
         if self.only_non_empty_voxel_dot:
             cls_pred, mask_pred, attn_mask = self.forward_head_only_non_empty_vox(query_feat, 
                         mask_features, multi_scale_memorys[0].shape[-3:], occ_pred)
+            PV_mask_pred = None
         else:
-            cls_pred, mask_pred, attn_mask = self.forward_head(query_feat, 
-                        mask_features, multi_scale_memorys[0].shape[-3:])
+            cls_pred, mask_pred, attn_mask, PV_mask_pred = self.forward_head(query_feat, 
+                        mask_features, multi_scale_memorys[0].shape[-3:], 
+                        trans_feat)
 
         cls_pred_list.append(cls_pred)
         mask_pred_list.append(mask_pred)
+        PV_mask_pred_list.append(PV_mask_pred)
         
         if self.num_transformer_decoder_layers != 0:
             B, C, W, H, Z = mask_features.shape
@@ -1062,7 +1133,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
                 query_key_padding_mask=None,
                 key_padding_mask=None)
             
-            cls_pred, mask_pred, attn_mask = self.forward_head(
+            cls_pred, mask_pred, attn_mask, PV_mask_pred = self.forward_head(
                 query_feat, mask_features, 
                 multi_scale_memorys[(i + 1) % self.num_transformer_feat_level].shape[-3:])
             cls_pred_list.append(cls_pred)
@@ -1082,16 +1153,27 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         mask_pred_list_ = []
         dn_cls_pred_list = []
         dn_mask_pred_list = []
+         
+        PV_mask_pred_list_ = []
+        PV_dn_mask_pred_list = []
+        
         for i in range(len(cls_pred_list)):
             # dn_pad_size = dn_args['dn_pad_size']
             cls_pred_list_.append(cls_pred_list[i][:, dn_pad_size:])
             mask_pred_list_.append(mask_pred_list[i][:, dn_pad_size:])
             dn_cls_pred_list.append(cls_pred_list[i][:, :dn_pad_size])
             dn_mask_pred_list.append(mask_pred_list[i][:, :dn_pad_size])
+            
+            if self.query_PV_aux and self.training:
+                PV_mask_pred_list_.append(PV_mask_pred_list[i][:, dn_pad_size:])
+                PV_dn_mask_pred_list.append(PV_mask_pred_list[i][:, :dn_pad_size])
+                
         
         dn_args['cls_pred_list'] = dn_cls_pred_list
         dn_args['mask_pred_list'] = dn_mask_pred_list
-        return cls_pred_list_, mask_pred_list_, dn_args
+        dn_args['PV_mask_pred_list'] = PV_dn_mask_pred_list
+        
+        return cls_pred_list_, mask_pred_list_, dn_args, PV_mask_pred_list_
 
     def format_results(self, mask_cls_results, mask_pred_results):
         mask_cls = F.softmax(mask_cls_results, dim=-1)[..., :-1] # [1b, 100q, 18c]
@@ -1183,7 +1265,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             - mask_pred_results (Tensor): Mask logits, shape \
                 (batch_size, num_queries, h, w).
         """
-        all_cls_scores, all_mask_preds, _ = self(voxel_feats, img_metas, occ_pred)
+        all_cls_scores, all_mask_preds, _, _ = self(voxel_feats, img_metas, occ_pred)
         mask_cls_results = all_cls_scores[-1]
         mask_pred_results = all_mask_preds[-1]
         

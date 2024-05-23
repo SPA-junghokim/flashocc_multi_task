@@ -671,7 +671,7 @@ def preprocess_panoptic_occupancy_gt(gt_occ, num_classes, img_metas, max_objects
     
     return stuff_labels, stuff_masks
 
-def preprocess_occupancy_gt(gt_occ, num_classes, img_metas, 
+def preprocess_occupancy_gt(gt_occ, num_classes, img_metas, semantic_labels_PV,
         with_binary_occupancy=False):
     """Preprocess the ground truth for a image.
     Args:
@@ -699,6 +699,8 @@ def preprocess_occupancy_gt(gt_occ, num_classes, img_metas,
     
     stuff_masks_list = []
     stuff_labels_list = []
+    PV_masks_list = []
+    
     for label in semantic_labels:
         if label >= num_classes:
             continue
@@ -706,7 +708,11 @@ def preprocess_occupancy_gt(gt_occ, num_classes, img_metas,
         stuff_mask = gt_occ == label
         stuff_masks_list.append(stuff_mask)
         stuff_labels_list.append(label)
-    
+        if semantic_labels_PV is not None:
+            PV_mask = semantic_labels_PV[:,label.long()]
+            PV_masks_list.append(PV_mask)
+        else:
+            PV_masks_list.append(None)
     # define a class for binary occupancy
     if with_binary_occupancy:
         stuff_mask = gt_occ < 17
@@ -718,8 +724,10 @@ def preprocess_occupancy_gt(gt_occ, num_classes, img_metas,
     assert len(stuff_masks_list) > 0
     stuff_masks = torch.stack(stuff_masks_list, dim=0).long()
     stuff_labels = torch.stack(stuff_labels_list, dim=0).long()
-    
-    return stuff_labels, stuff_masks, binary_mask
+    if semantic_labels_PV is not None:
+        PV_masks = torch.stack(PV_masks_list, dim=0).long()
+
+    return stuff_labels, stuff_masks, binary_mask, PV_masks
 
 
 def preprocess_occupancy_gt_dn(gt_occ, num_classes, img_metas, non_vis_semantic_voxel=None,

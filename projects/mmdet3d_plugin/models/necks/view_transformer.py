@@ -834,7 +834,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
     @force_fp32()
     def get_SA_loss(self, semantic_preds, depth_preds, sa_gt_depth, sa_gt_semantic):
         depth_loss_dict = dict()
-        depth_labels_value, depth_labels, semantic_labels, depth_labels_32x88 = self.get_downsampled_gt_depth_and_semantic(sa_gt_depth, sa_gt_semantic)
+        depth_labels_value, depth_labels, semantic_labels_PV, depth_labels_32x88 = self.get_downsampled_gt_depth_and_semantic(sa_gt_depth, sa_gt_semantic)
         
         if self.dpeht_render_loss:
             C,num_bins,feature_h,feature_w= depth_preds.shape
@@ -864,19 +864,19 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                 W = int(W / self.downsample)
                 H = int(H / self.downsample)
                 
-                fg_mask = torch.max(depth_labels_32x88, dim=1).values > 0.0
+                PV_fg_mask = torch.max(depth_labels_32x88, dim=1).values > 0.0
             else:
-                fg_mask = torch.max(depth_labels, dim=1).values > 0.0
+                PV_fg_mask = torch.max(depth_labels, dim=1).values > 0.0
             context_feature = context_feature.softmax(dim=1).permute(0, 2, 3, 1).contiguous().view(-1, 18)
-            semantic_labels = semantic_labels.permute(0, 2, 3, 1).contiguous().view(-1, 18).to(context_feature)
-            semantic_pred = context_feature[fg_mask]
-            semantic_labels = semantic_labels[fg_mask]
+            semantic_labels = semantic_labels_PV.permute(0, 2, 3, 1).contiguous().view(-1, 18).to(context_feature)
+            semantic_pred = context_feature[PV_fg_mask]
+            semantic_labels = semantic_labels[PV_fg_mask]
             with autocast(enabled=False):
                 segmentation_loss = F.binary_cross_entropy(
                     semantic_pred,
                     semantic_labels,
                     reduction='none',
-                ).sum() / max(1.0, fg_mask.sum())
+                ).sum() / max(1.0, PV_fg_mask.sum())
             depth_loss_dict['loss_segmentation'] = self.loss_segmentation_weight * segmentation_loss
             
         # depth_labels_value, depth_labels = self.get_downsampled_gt_depth(gt_depth)
@@ -903,7 +903,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                     ).sum() / max(1.0, fg_mask.sum())
             depth_loss_dict['loss_depth'] = self.loss_depth_weight * depth_loss
         
-        return depth_loss_dict
+        return depth_loss_dict, semantic_labels_PV, PV_fg_mask
     
     
     @force_fp32()
