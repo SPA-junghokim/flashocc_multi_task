@@ -163,7 +163,7 @@ class BEVDetOCC_depthGT_occformer_BEVaux(BEVDepth4D):
                  bevbackbone_vox_simple_reshape=False,
                  only_non_empty_voxel_dot = False,
                  
-                 test_merge=True,
+                 test_merge=False,
         
                  time_check=False,
                  **kwargs):
@@ -459,9 +459,11 @@ class BEVDetOCC_depthGT_occformer_BEVaux(BEVDepth4D):
         if self.SA_loss:
             sa_gt_depth = kwargs['SA_gt_depth']
             sa_gt_semantic = kwargs['SA_gt_semantic']
-            loss_depth = self.img_view_transformer.get_SA_loss(trans_feat, depth, sa_gt_depth, sa_gt_semantic)
+            loss_depth, semantic_labels_PV, PV_fg_mask = self.img_view_transformer.get_SA_loss(trans_feat, depth, sa_gt_depth, sa_gt_semantic)
         else:
             loss_depth = self.img_view_transformer.get_depth_loss(gt_depth, depth)
+            semantic_labels_PV, PV_fg_mask = None, None
+
         losses.update(loss_depth)
         
         det_feats, occ_bev_feats, occ_vox_feats, seg_feats =  img_feats
