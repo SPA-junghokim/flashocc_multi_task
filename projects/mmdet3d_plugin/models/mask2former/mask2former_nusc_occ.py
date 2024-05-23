@@ -419,7 +419,9 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
         
         semantic_labels_PV_list = [semantic_labels_PV for _ in range(num_dec_layers)]
         PV_fg_mask_list = [PV_fg_mask for _ in range(num_dec_layers)]
-
+        if len(all_PV_mask_preds) != len(PV_fg_mask_list):
+            all_PV_mask_preds = [None for _ in range(num_dec_layers)]
+             
         losses_cls, losses_mask, losses_loavsz, losses_dice, all_point_coords, loss_dice_PV, loss_mask_PV = multi_apply(
             self.loss_single, all_cls_scores, all_mask_preds,
             all_gt_labels_list, all_gt_masks_list, all_gt_binary_list, all_mask_camera, img_metas_list,
@@ -659,7 +661,7 @@ class Mask2FormerNuscOccHead(MaskFormerHead):
             loss_lovasz = mask_preds.sum()
             loss_dice = mask_preds.sum()
             if self.loss_lovasz == False: loss_lovasz=None
-            return loss_cls, loss_mask, loss_lovasz, loss_dice, None
+            return loss_cls, loss_mask, loss_lovasz, loss_dice, None, None, None
 
         ''' 
         randomly sample K points for supervision, which can largely improve the 
