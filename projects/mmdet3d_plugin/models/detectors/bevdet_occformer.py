@@ -454,10 +454,9 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         if self.SA_loss:
             sa_gt_depth = kwargs['SA_gt_depth']
             sa_gt_semantic = kwargs['SA_gt_semantic']
-            loss_depth, semantic_labels_PV, PV_fg_mask = self.img_view_transformer.get_SA_loss(trans_feat, depth, sa_gt_depth, sa_gt_semantic)
+            loss_depth = self.img_view_transformer.get_SA_loss(trans_feat, depth, sa_gt_depth, sa_gt_semantic)
         else:
             loss_depth = self.img_view_transformer.get_depth_loss(gt_depth, depth)
-            semantic_labels_PV, PV_fg_mask = None, None
         losses.update(loss_depth)
         
         det_feats, occ_bev_feats, occ_vox_feats, seg_feats =  img_feats
@@ -475,7 +474,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                 non_vis_semantic_voxel = kwargs['non_vis_semantic_voxel']     # (B, Dx, Dy, Dz)
             else:
                 non_vis_semantic_voxel = [None] * mask_camera.shape[0]
-            loss_occ = self.forward_occ_train(occ_bev_feats, occ_vox_feats, voxel_semantics, mask_camera, non_vis_semantic_voxel, img_inputs, depth, trans_feat, semantic_labels_PV, PV_fg_mask)
+            loss_occ = self.forward_occ_train(occ_bev_feats, occ_vox_feats, voxel_semantics, mask_camera, non_vis_semantic_voxel, img_inputs, depth)
             loss_weight = {}
             for k, v in loss_occ.items():
                 loss_weight[k] = v * self.occ_loss_weight
@@ -584,7 +583,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         return losses
 
     
-    def forward_occ_train(self, occ_bev_feats, occ_vox_feats, voxel_semantics, mask_camera, non_vis_semantic_voxel, img_inputs, depth, trans_feat, semantic_labels_PV, PV_fg_mask, **kwargs):
+    def forward_occ_train(self, occ_bev_feats, occ_vox_feats, voxel_semantics, mask_camera, non_vis_semantic_voxel, img_inputs, depth, **kwargs):
         """
         Args:
             img_feats: (B, C, Dz, Dy, Dx) / (B, C, Dy, Dx)
@@ -594,7 +593,6 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         """
         #img_feats = [4, 128, 200, 200]
         B = occ_bev_feats[0].shape[0]
-        trans_feat = trans_feat.reshape(B, -1, *trans_feat.shape[1:])
         img_metas = [{"pc_range": self.pc_range, "occ_size":self.grid_size} for i in range(B)]
         
         new_loss_aux_3d, aux_occ_pred = None, None
@@ -607,7 +605,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                 for k, v in loss_aux_3d.items():
                     new_loss_aux_3d[k+'_aux3d'] = v
             
-        loss_occ = self.occ_head.forward_train(occ_vox_feats, img_metas, voxel_semantics, mask_camera, non_vis_semantic_voxel, aux_occ_pred, trans_feat, semantic_labels_PV, PV_fg_mask)
+        loss_occ = self.occ_head.forward_train(occ_vox_feats, img_metas, voxel_semantics, mask_camera, non_vis_semantic_voxel, aux_occ_pred)
 
         # fig.savefig('first_fig.png')
 
