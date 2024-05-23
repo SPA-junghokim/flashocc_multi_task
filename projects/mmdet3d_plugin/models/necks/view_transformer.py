@@ -71,7 +71,7 @@ class LSSViewTransformer(BaseModule):
         self.accelerate = accelerate
         self.initial_flag = True
         self.collapse_z = collapse_z
-        
+
         
 
     def create_grid_infos(self, x, y, z, **kwargs):
@@ -481,6 +481,7 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
                  LSS_Rendervalue=False,
                  balance_cls_weight=False,
                  PV32x88=False,
+                 average_pool=False,
                  **kwargs):
         super(LSSViewTransformerBEVDepth, self).__init__(**kwargs)
         self.loss_depth_weight = loss_depth_weight
@@ -499,7 +500,24 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         self.LSS_Rendervalue = LSS_Rendervalue
         self.balance_cls_weight = balance_cls_weight
         self.PV32x88 = PV32x88
-        
+        self.average_pool = average_pool
+
+        if self.average_pool:
+            self.x_bound = kwargs['grid_config']['x']
+            self.y_bound = kwargs['grid_config']['y']
+            self.z_bound = kwargs['grid_config']['z']
+            self.register_buffer(
+                'voxel_size',
+                torch.Tensor([row[2] for row in [self.x_bound, self.y_bound, self.z_bound]]))
+            self.register_buffer(
+                'voxel_coord',
+                torch.Tensor([
+                    row[0] + row[2] / 2.0 for row in [self.x_bound, self.y_bound, self.z_bound]
+                ]))
+            self.register_buffer(
+                'voxel_num',
+                torch.LongTensor([(row[1] - row[0]) / row[2]
+                                for row in [self.x_bound, self.y_bound, self.z_bound]]))
         
         if self.balance_cls_weight:
             self.class_weights = torch.from_numpy(1 / np.log(nusc_class_frequencies[:17] + 0.001)).float()
@@ -632,7 +650,46 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
         sampled_depth_feature = (indices_ceil - indices) * torch.gather(depth_feature, 1, indices_floor.long()) + \
                                 (indices - indices_floor) * torch.gather(depth_feature, 1, indices_ceil.long())
         return sampled_depth_feature
+    def get_geometry_collapsed(self, sensor2ego, ego2global, cam2imgs, post_rots, post_trans, bda,
+                               z_min=-5., z_max=3.):
+        B, N, _, _ = sensor2ego.shape
+
+        # post-transformation
+        # B x N x D x H x W x 3
+        points = self.frustum.to(sensor2ego) - post_trans.view(B, N, 1, 1, 1, 3)
+        points = torch.inverse(post_rots).view(B, N, 1, 1, 1, 3, 3).matmul(points.unsqueeze(-1))
+
+        # cam_to_ego
+        points = torch.cat(
+            (points[..., :2, :] * points[..., 2:3, :], points[..., 2:3, :]), 5)
+        combine = sensor2ego[:,:,:3,:3].matmul(torch.inverse(cam2imgs))
+        points = combine.view(B, N, 1, 1, 1, 3, 3).matmul(points).squeeze(-1)
+        points += sensor2ego[:,:,:3, 3].view(B, N, 1, 1, 1, 3)
+        points = bda.view(B, 1, 1, 1, 1, 3,
+                          3).matmul(points.unsqueeze(-1)).squeeze(-1)
+        
+
+        # combine = sensor2ego_mat.matmul(torch.inverse(intrin_mat)).double()
+        # points = combine.view(batch_size, num_cams, 1, 1, 1, 4,
+        #                       4).matmul(points).half()
+        # if bda_mat is not None:
+        #     bda_mat = bda_mat.unsqueeze(1).repeat(1, num_cams, 1, 1).view(
+        #         batch_size, num_cams, 1, 1, 1, 4, 4)
+        #     points = (bda_mat @ points).squeeze(-1)
+        # else:
+        #     points = points.squeeze(-1)
+
+        points_out = points[:, :, :, 0:1, :, :3]
+        points_valid_z = ((points[..., 2] > z_min) & (points[..., 2] < z_max))
+
+        return points_out, points_valid_z
     
+    def _split_batch_cam(self, feat, inv=False, num_cams=6):
+        batch_size = feat.shape[0]
+        if not inv:
+            return feat.reshape(batch_size // num_cams, num_cams, *feat.shape[1:])
+        else:
+            return feat.reshape(batch_size * num_cams, *feat.shape[2:])
     def forward(self, input, stereo_metas=None):
         """
         Args:
@@ -706,10 +763,35 @@ class LSSViewTransformerBEVDepth(LSSViewTransformer):
             
             real_depth_feature = self.depth_sampling(visual_depth_feature, offset)
             depth = real_depth_feature.softmax(1)
-        
-        bev_feat, depth = self.view_transform(input, depth, tran_feat, kept)
-        
-        return bev_feat, depth, middle_feat
+    
+        if self.average_pool:
+            img_feat_with_depth = depth.unsqueeze(1) * tran_feat.unsqueeze(2)
+            geom_xyz, geom_xyz_valid = self.get_geometry_collapsed(
+                rots,
+                trans,
+                intrins,
+                post_rots, 
+                post_trans,
+                bda,
+                z_min=-1.,
+                z_max=5.4)
+            
+            geom_xyz_valid = self._split_batch_cam(geom_xyz_valid, inv=True).unsqueeze(1)
+            img_feat_with_depth = (img_feat_with_depth * geom_xyz_valid).sum(3).unsqueeze(3)
+            img_context = img_feat_with_depth
+            img_context = self._split_batch_cam(img_context)
+            img_context = img_context.permute(0, 1, 3, 4, 5, 2).contiguous()
+            
+            geom_xyz = ((geom_xyz - (self.voxel_coord - self.voxel_size / 2.0)) / self.voxel_size).int()
+            geom_xyz[..., 2] = 0  # collapse z-axis
+            geo_pos = torch.ones_like(geom_xyz)
+            
+            feature_map, _ = average_voxel_pooling(geom_xyz, img_context, geo_pos, self.voxel_num.cuda())      
+            return feature_map.contiguous(), depth_digit.softmax(dim=1), middle_feat
+        else:
+            bev_feat, depth = self.view_transform(input, depth, tran_feat, kept)
+            
+            return bev_feat, depth, middle_feat
 
     def get_downsampled_gt_depth(self, gt_depths):
         """

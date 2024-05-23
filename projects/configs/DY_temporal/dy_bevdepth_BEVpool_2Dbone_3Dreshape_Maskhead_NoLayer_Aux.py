@@ -58,12 +58,13 @@ mask2former_pos_channel_bev = mask2former_feat_channel / 2 # divided by ndim
 # mask2former_num_heads = voxel_out_channels // 32
 mask2former_num_heads = 8
 
-multi_adj_frame_id_cfg = (1, 1, 1)
+multi_adj_frame_id_cfg = (1, 1+1, 1)
 
 if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
 else:
     numC_Trans_cat = numC_Trans
+    
 model = dict(
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
@@ -74,7 +75,7 @@ model = dict(
     only_last_layer=True,
     vox_simple_reshape=True,
     vox_aux_loss_3d=True,
-    BEV_aux_channel=numC_Trans_pool,
+    
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
         in_dim=voxel_out_channels,
@@ -92,6 +93,7 @@ model = dict(
         sololoss=True,
         loss_weight=10.,
     ),
+    
     img_backbone=dict(
         type='ResNet',
         depth=50,
@@ -178,24 +180,6 @@ model = dict(
     #     out_channels=voxel_out_channels,
     #     input_feature_index=(0, 1, 2),
     #     ),
-    aux_bev2occ_head=dict(
-        type='BEVOCCHead2D',
-        in_dim=128,
-        out_dim=256,
-        Dz=16,
-        use_mask=True,
-        num_classes=18,
-        use_predicter=True,
-        class_wise=False,
-        loss_occ=dict(
-            type='CrossEntropyLoss',
-            use_sigmoid=False,
-            ignore_index=255,
-            loss_weight=1.0,
-        ),
-        sololoss=True,
-        loss_weight=10,
-    ),
     occ_head=dict(
         type='Mask2FormerNuscOccHead',
         feat_channels=mask2former_feat_channel,

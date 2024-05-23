@@ -58,8 +58,7 @@ mask2former_pos_channel_bev = mask2former_feat_channel / 2 # divided by ndim
 # mask2former_num_heads = voxel_out_channels // 32
 mask2former_num_heads = 8
 
-multi_adj_frame_id_cfg = (1, 1, 1)
-
+multi_adj_frame_id_cfg = (1, 1+1, 1)
 if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
 else:
@@ -67,14 +66,13 @@ else:
 model = dict(
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
-    type='BEVDetOCC_depthGT_occformer',
+    type='BEVStereo4DOCC_depthGT_occformer',
     pc_range = point_cloud_range,
     grid_size = grid_size,
     voxel_out_channels = voxel_out_channels,
     only_last_layer=True,
     vox_simple_reshape=True,
     vox_aux_loss_3d=True,
-    BEV_aux_channel=numC_Trans_pool,
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
         in_dim=voxel_out_channels,
@@ -92,11 +90,12 @@ model = dict(
         sololoss=True,
         loss_weight=10.,
     ),
+    
     img_backbone=dict(
         type='ResNet',
         depth=50,
         num_stages=4,
-        out_indices=(2, 3),
+        out_indices=(0, 2, 3),
         frozen_stages=-1,
         norm_cfg=dict(type='BN', requires_grad=True),
         norm_eval=False,
@@ -112,7 +111,7 @@ model = dict(
         start_level=0,
         out_ids=[0]),
     img_view_transformer=dict(
-        type='LSSViewTransformerBEVDepth',
+        type='LSSViewTransformerBEVStereo',
         grid_config=grid_config,
         input_size=data_config['input_size'],
         in_channels=256,
@@ -120,7 +119,11 @@ model = dict(
         sid=False,
         collapse_z=True,
         downsample=16,
-        depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
+        loss_depth_weight=0.05,
+        depthnet_cfg=dict(use_dcn=False,
+                          aspp_mid_channels=96,
+                          stereo=True,
+                          bias=5.),
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(
@@ -178,24 +181,6 @@ model = dict(
     #     out_channels=voxel_out_channels,
     #     input_feature_index=(0, 1, 2),
     #     ),
-    aux_bev2occ_head=dict(
-        type='BEVOCCHead2D',
-        in_dim=128,
-        out_dim=256,
-        Dz=16,
-        use_mask=True,
-        num_classes=18,
-        use_predicter=True,
-        class_wise=False,
-        loss_occ=dict(
-            type='CrossEntropyLoss',
-            use_sigmoid=False,
-            ignore_index=255,
-            loss_weight=1.0,
-        ),
-        sololoss=True,
-        loss_weight=10,
-    ),
     occ_head=dict(
         type='Mask2FormerNuscOccHead',
         feat_channels=mask2former_feat_channel,
@@ -324,7 +309,7 @@ train_pipeline = [
 ]
 
 test_pipeline = [
-    dict(type='PrepareImageInputs', data_config=data_config, sequential=False),
+    dict(type='PrepareImageInputs', data_config=data_config, sequential=True),
     dict(
         type='LoadAnnotationsBEVDepth',
         bda_aug_conf=bda_aug_conf,
@@ -365,7 +350,7 @@ share_data_config = dict(
     data_root=data_root,
     classes=class_names,
     modality=input_modality,
-    stereo=False,
+    stereo=True,
     filter_empty_gt=False,
     # img_info_prototype='bevdet4d',
     img_info_prototype='bevdet4d',
