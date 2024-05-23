@@ -8,7 +8,7 @@ from .bevdepth4d_MTL import BEVDepth4D_MTL
 
 from .bevdet_occformer import BEVDetOCC_depthGT_occformer
 from .bevstereo4d_occformer import BEVStereo4DOCC_depthGT_occformer
-from .bevdet_occformer_pretrain import BEVDetOCC_depthGT_occformer_pretrain
+# from .bevdet_occformer_pretrain import BEVDetOCC_depthGT_occformer_pretrain
 from .bevdet_occformer_BEVaux import BEVDetOCC_depthGT_occformer_BEVaux
 
 
