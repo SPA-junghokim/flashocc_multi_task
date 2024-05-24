@@ -42,6 +42,11 @@ grid_config_3dpool = {
     'depth': [1.0, 45.0, 0.5],
 }
 
+# original class_range
+# class_range = {'car': 50, 'truck': 50, 'bus': 50, 'trailer': 50, 'construction_vehicle': 50, 'pedestrian': 40, 'motorcycle': 40, 'bicycle': 40, 'traffic_cone': 30, 'barrier': 30}
+class_range = {'car': 40,'truck': 40,'bus': 40,'trailer': 40,'construction_vehicle': 40,
+    'pedestrian': 30, 'motorcycle': 30,'bicycle': 30,'traffic_cone': 25,'barrier': 25}
+            
 seg_grid_config={
     'xbound': [-40, 40, 0.4],
     'ybound': [-40, 40, 0.4],
@@ -51,6 +56,8 @@ seg_grid_config={
 map_classes = ['drivable_area', 'ped_crossing', 'walkway', 'stop_line', 'carpark_area', 'divider']
 voxel_size = [0.1, 0.1, 0.2]
 grid_size = [200, 200, 16]
+out_size_factor = 4 # This config is for detection. (8 -> 128x128, 4 -> 256x256)
+velocity_code_weight = 1.0
 numC_Trans = 64
 numC_Trans_pool = 64
 
@@ -81,25 +88,25 @@ model = dict(
     voxel_out_channels = voxel_out_channels,
     only_last_layer=True,
     vox_simple_reshape=False,
-    # vox_aux_loss_3d=True,
+    vox_aux_loss_3d=True,
     
-    # vox_aux_loss_3d_occ_head=dict(
-    #     type='BEVOCCHead3D',
-    #     in_dim=voxel_out_channels,
-    #     out_dim=32,
-    #     use_mask=True,
-    #     num_classes=18,
-    #     use_predicter=True,
-    #     class_wise=False,
-    #     loss_occ=dict(
-    #         type='CrossEntropyLoss',
-    #         use_sigmoid=False,
-    #         ignore_index=255,
-    #         loss_weight=1.0
-    #     ),
-    #     sololoss=True,
-    #     loss_weight=10.,
-    # ),
+    vox_aux_loss_3d_occ_head=dict(
+        type='BEVOCCHead3D',
+        in_dim=voxel_out_channels,
+        out_dim=32,
+        use_mask=True,
+        num_classes=18,
+        use_predicter=True,
+        class_wise=False,
+        loss_occ=dict(
+            type='CrossEntropyLoss',
+            use_sigmoid=False,
+            ignore_index=255,
+            loss_weight=1.0
+        ),
+        sololoss=True,
+        loss_weight=10.,
+    ),
     
     img_backbone=dict(
         # type='ResNet',
@@ -131,15 +138,13 @@ model = dict(
         start_level=0,
         out_ids=[0]),
     img_view_transformer=dict(
-        type='LSSViewTransformerBEVDepth',
+        type='CRN_LSS',
         grid_config=grid_config,
         input_size=data_config['input_size'],
         in_channels=256,
         out_channels=numC_Trans_pool,
         sid=False,
-        collapse_z=True,
         downsample=16,
-        depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(
@@ -197,91 +202,91 @@ model = dict(
     #     out_channels=voxel_out_channels,
     #     input_feature_index=(0, 1, 2),
     #     ),
-    # occ_head=dict(
-    #     type='Mask2FormerNuscOccHead',
-    #     feat_channels=mask2former_feat_channel,
-    #     out_channels=mask2former_output_channel,
-    #     num_queries=mask2former_num_queries,
-    #     num_occupancy_classes=num_class,
-    #     pooling_attn_mask=True,
-    #     sample_weight_gamma=0.25,
-    #     num_transformer_feat_level=0,
-    #     # using stand-alone pixel decoder
-    #     positional_encoding=dict(
-    #         type='SinePositionalEncoding3D', num_feats=mask2former_pos_channel, normalize=True),
-    #     # using the original transformer decoder
-    #     transformer_decoder=dict(
-    #         type='DetrTransformerDecoder_custom',
-    #         return_intermediate=True,
-    #         num_layers=0,
-    #         transformerlayers=dict(
-    #             type='DetrTransformerDecoderLayer',
-    #             attn_cfgs=dict(
-    #                 type='MultiheadAttention',
-    #                 embed_dims=mask2former_feat_channel,
-    #                 num_heads=mask2former_num_heads,
-    #                 attn_drop=0.0,
-    #                 proj_drop=0.0,
-    #                 dropout_layer=None,
-    #                 batch_first=False),
-    #             ffn_cfgs=dict(
-    #                 embed_dims=mask2former_feat_channel,
-    #                 num_fcs=2,
-    #                 act_cfg=dict(type='ReLU', inplace=True),
-    #                 ffn_drop=0.0,
-    #                 dropout_layer=None,
-    #                 add_identity=True),
-    #             feedforward_channels=mask2former_feat_channel * 8,
-    #             operation_order=('cross_attn', 'norm', 'self_attn', 'norm',
-    #                              'ffn', 'norm')),
-    #         init_cfg=None),
-    #     # loss settings
-    #     loss_cls=dict(
-    #         type='CrossEntropyLoss',
-    #         use_sigmoid=False,
-    #         loss_weight=2.0,
-    #         reduction='mean',
-    #         class_weight=[1.0] * num_class + [0.1]),
-    #     loss_mask=dict(
-    #         type='CrossEntropyLoss',
-    #         use_sigmoid=True,
-    #         reduction='mean',
-    #         loss_weight=5.0),
-    #     loss_dice=dict(
-    #         type='DiceLoss',
-    #         use_sigmoid=True,
-    #         activate=True,
-    #         reduction='mean',
-    #         naive_dice=True,
-    #         eps=1.0,
-    #         loss_weight=5.0),
+    occ_head=dict(
+        type='Mask2FormerNuscOccHead',
+        feat_channels=mask2former_feat_channel,
+        out_channels=mask2former_output_channel,
+        num_queries=mask2former_num_queries,
+        num_occupancy_classes=num_class,
+        pooling_attn_mask=True,
+        sample_weight_gamma=0.25,
+        num_transformer_feat_level=0,
+        # using stand-alone pixel decoder
+        positional_encoding=dict(
+            type='SinePositionalEncoding3D', num_feats=mask2former_pos_channel, normalize=True),
+        # using the original transformer decoder
+        transformer_decoder=dict(
+            type='DetrTransformerDecoder_custom',
+            return_intermediate=True,
+            num_layers=0,
+            transformerlayers=dict(
+                type='DetrTransformerDecoderLayer',
+                attn_cfgs=dict(
+                    type='MultiheadAttention',
+                    embed_dims=mask2former_feat_channel,
+                    num_heads=mask2former_num_heads,
+                    attn_drop=0.0,
+                    proj_drop=0.0,
+                    dropout_layer=None,
+                    batch_first=False),
+                ffn_cfgs=dict(
+                    embed_dims=mask2former_feat_channel,
+                    num_fcs=2,
+                    act_cfg=dict(type='ReLU', inplace=True),
+                    ffn_drop=0.0,
+                    dropout_layer=None,
+                    add_identity=True),
+                feedforward_channels=mask2former_feat_channel * 8,
+                operation_order=('cross_attn', 'norm', 'self_attn', 'norm',
+                                 'ffn', 'norm')),
+            init_cfg=None),
+        # loss settings
+        loss_cls=dict(
+            type='CrossEntropyLoss',
+            use_sigmoid=False,
+            loss_weight=2.0,
+            reduction='mean',
+            class_weight=[1.0] * num_class + [0.1]),
+        loss_mask=dict(
+            type='CrossEntropyLoss',
+            use_sigmoid=True,
+            reduction='mean',
+            loss_weight=5.0),
+        loss_dice=dict(
+            type='DiceLoss',
+            use_sigmoid=True,
+            activate=True,
+            reduction='mean',
+            naive_dice=True,
+            eps=1.0,
+            loss_weight=5.0),
         
-    #     point_cloud_range=point_cloud_range,
-    #     train_cfg=dict(
-    #         num_points=12544*3,
-    #         oversample_ratio=3.0,
-    #         importance_sample_ratio=0.75,
-    #         assigner=dict(
-    #             type='MaskHungarianAssigner',
-    #             cls_cost=dict(type='ClassificationCost', weight=2.0),
-    #             mask_cost=dict(
-    #                 type='CrossEntropyLossCost', weight=5.0, use_sigmoid=True),
-    #             dice_cost=dict(
-    #                 type='DiceCost', weight=5.0, pred_act=True, eps=1.0)),
-    #             sampler=dict(type='MaskPseudoSampler'),
-    #         ),
-    #     test_cfg=dict(
-    #             semantic_on=True,
-    #             panoptic_on=False,
-    #             instance_on=False),
-    #     loss_lovasz=True,
-    #     lovasz_loss_weight=1,
-    #     lovasz_flatten=True,
-    #     consider_visible_mask = True,
-    #     learned_pos_embed=True,
+        point_cloud_range=point_cloud_range,
+        train_cfg=dict(
+            num_points=12544*3,
+            oversample_ratio=3.0,
+            importance_sample_ratio=0.75,
+            assigner=dict(
+                type='MaskHungarianAssigner',
+                cls_cost=dict(type='ClassificationCost', weight=2.0),
+                mask_cost=dict(
+                    type='CrossEntropyLossCost', weight=5.0, use_sigmoid=True),
+                dice_cost=dict(
+                    type='DiceCost', weight=5.0, pred_act=True, eps=1.0)),
+                sampler=dict(type='MaskPseudoSampler'),
+            ),
+        test_cfg=dict(
+                semantic_on=True,
+                panoptic_on=False,
+                instance_on=False),
+        loss_lovasz=True,
+        lovasz_loss_weight=1,
+        lovasz_flatten=True,
+        consider_visible_mask = True,
+        learned_pos_embed=True,
 
-    # ),
-    # after_voxelize_add = True,
+    ),
+    after_voxelize_add = True,
     
     seg_head=dict(
         type='BEVSegmentationHead',
@@ -292,6 +297,71 @@ model = dict(
         loss_type='focal',
         loss_weight=[40.0, 40.0, 40.0, 40.0, 40.0, 40.0],
         ),  
+    
+    pts_bbox_head=dict(
+        type='BEV_CenterHead',
+        in_channels=48,
+        tasks=[
+            dict(num_class=1, class_names=['car']),
+            dict(num_class=2, class_names=['truck', 'construction_vehicle']),
+            dict(num_class=2, class_names=['bus', 'trailer']),
+            dict(num_class=1, class_names=['barrier']),
+            dict(num_class=2, class_names=['motorcycle', 'bicycle']),
+            dict(num_class=2, class_names=['pedestrian', 'traffic_cone']),
+        ],
+        common_heads=dict(
+            reg=(2, 2), height=(1, 2), dim=(3, 2), rot=(2, 2), vel=(2, 2)),
+        share_conv_channel=64,
+        bbox_coder=dict(
+            type='CenterPointBBoxCoder',
+            pc_range=point_cloud_range[:2],
+            post_center_range=[-50.0, -50.0, -10.0, 50.0, 50.0, 10.0],
+            max_num=500,
+            score_threshold=0.1,
+            out_size_factor=out_size_factor,
+            voxel_size=voxel_size[:2],
+            code_size=9),
+        separate_head=dict(
+            type='SeparateHead', init_bias=-2.19, final_kernel=3),
+        loss_cls=dict(type='GaussianFocalLoss', reduction='mean'),
+        loss_bbox=dict(type='L1Loss', reduction='mean', loss_weight=0.25),
+        norm_bbox=True),
+    # model training and testing settings
+    train_cfg=dict(
+        pts=dict(
+            point_cloud_range=point_cloud_range,
+            grid_size=[800, 800, 40],
+            voxel_size=voxel_size,
+            out_size_factor=out_size_factor,
+            dense_reg=1,
+            gaussian_overlap=0.1,
+            max_objs=500,
+            min_radius=2,
+            code_weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 
+                          velocity_code_weight, velocity_code_weight])),
+    test_cfg=dict(
+        pts=dict(
+            pc_range=point_cloud_range[:2],
+            post_center_limit_range=[-50.0, -50.0, -10.0, 50.0, 50.0, 10.0],
+            max_per_img=500,
+            max_pool_nms=False,
+            min_radius=[4, 12, 10, 1, 0.85, 0.175],
+            score_threshold=0.1,
+            out_size_factor=out_size_factor,
+            voxel_size=voxel_size[:2],
+            # nms_type='circle',
+            pre_max_size=1000,
+            post_max_size=83,
+            # nms_thr=0.2,
+
+            # Scale-NMS
+            nms_type=['rotate', 'rotate', 'rotate', 'circle', 'rotate', 
+                      'rotate'],
+            nms_thr=[0.2, 0.2, 0.2, 0.2, 0.2, 0.5],
+            nms_rescale_factor=[1.0, [0.7, 0.7], [0.4, 0.55], 1.1, [1.0, 1.0], 
+                                [4.5, 9.0]]
+        )),
+    
     
     det_loss_weight = 1,
     occ_loss_weight = 1,
@@ -321,7 +391,7 @@ train_pipeline = [
         bda_aug_conf=bda_aug_conf,
         classes=class_names,
         is_train=True),
-    # dict(type='LoadOccGTFromFile'),
+    dict(type='LoadOccGTFromFile', ignore_nonvisible=True),
     dict(
         type='LoadPointsFromFile',
         coord_type='LIDAR',
@@ -330,10 +400,13 @@ train_pipeline = [
         file_client_args=file_client_args),
     dict(type='GenSegGT', root_path='data/nuscenes', grid_config=seg_grid_config, map_classes= map_classes),
     dict(type='PointToMultiViewDepth', downsample=1, grid_config=grid_config),
+    dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
+    dict(type='ObjectNameFilter', classes=class_names),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
-        type='Collect3D', keys=['img_inputs', 'gt_depth',
-                                'gt_seg_mask'])
+        type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
+                                'mask_lidar', 'mask_camera',
+                                'gt_seg_mask', 'gt_bboxes_3d', 'gt_labels_3d'])
 ]
 
 test_pipeline = [
@@ -350,6 +423,7 @@ test_pipeline = [
         use_dim=5,
         file_client_args=file_client_args),
     dict(type='GenSegGT', root_path='data/nuscenes', grid_config=seg_grid_config, map_classes= map_classes),
+    dict(type='LoadOccGTFromFile'),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=(1333, 800),
@@ -360,7 +434,8 @@ test_pipeline = [
                 type='DefaultFormatBundle3D',
                 class_names=class_names,
                 with_label=False),
-            dict(type='Collect3D', keys=['points', 'img_inputs', 'gt_seg_mask'])
+            dict(type='Collect3D', keys=['points', 'img_inputs', 'voxel_semantics',
+                                'mask_lidar', 'mask_camera','gt_seg_mask'])
         ])
 ]
 
@@ -382,6 +457,7 @@ share_data_config = dict(
     # img_info_prototype='bevdet4d',
     img_info_prototype='bevdet4d',
     multi_adj_frame_id_cfg=multi_adj_frame_id_cfg,
+    class_range=class_range
 )
 
 test_data_config = dict(
@@ -404,7 +480,9 @@ data = dict(
         use_valid_flag=True,
         # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
         # and box_type_3d='Depth' in sunrgbd and scannet dataset.
-        box_type_3d='LiDAR'),
+        box_type_3d='LiDAR',
+        class_range=class_range
+        ),
     val=test_data_config,
     test=test_data_config
     )

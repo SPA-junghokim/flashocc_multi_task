@@ -81,25 +81,25 @@ model = dict(
     voxel_out_channels = voxel_out_channels,
     only_last_layer=True,
     vox_simple_reshape=False,
-    vox_aux_loss_3d=True,
+    # vox_aux_loss_3d=True,
     
-    vox_aux_loss_3d_occ_head=dict(
-        type='BEVOCCHead3D',
-        in_dim=voxel_out_channels,
-        out_dim=32,
-        use_mask=True,
-        num_classes=18,
-        use_predicter=True,
-        class_wise=False,
-        loss_occ=dict(
-            type='CrossEntropyLoss',
-            use_sigmoid=False,
-            ignore_index=255,
-            loss_weight=1.0
-        ),
-        sololoss=True,
-        loss_weight=10.,
-    ),
+    # vox_aux_loss_3d_occ_head=dict(
+    #     type='BEVOCCHead3D',
+    #     in_dim=voxel_out_channels,
+    #     out_dim=32,
+    #     use_mask=True,
+    #     num_classes=18,
+    #     use_predicter=True,
+    #     class_wise=False,
+    #     loss_occ=dict(
+    #         type='CrossEntropyLoss',
+    #         use_sigmoid=False,
+    #         ignore_index=255,
+    #         loss_weight=1.0
+    #     ),
+    #     sololoss=True,
+    #     loss_weight=10.,
+    # ),
     
     img_backbone=dict(
         # type='ResNet',
@@ -131,15 +131,13 @@ model = dict(
         start_level=0,
         out_ids=[0]),
     img_view_transformer=dict(
-        type='LSSViewTransformerBEVDepth',
+        type='CRN_LSS',
         grid_config=grid_config,
         input_size=data_config['input_size'],
         in_channels=256,
         out_channels=numC_Trans_pool,
         sid=False,
-        collapse_z=True,
         downsample=16,
-        depthnet_cfg=dict(use_dcn=False, aspp_mid_channels=96),
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(
@@ -197,91 +195,91 @@ model = dict(
     #     out_channels=voxel_out_channels,
     #     input_feature_index=(0, 1, 2),
     #     ),
-    occ_head=dict(
-        type='Mask2FormerNuscOccHead',
-        feat_channels=mask2former_feat_channel,
-        out_channels=mask2former_output_channel,
-        num_queries=mask2former_num_queries,
-        num_occupancy_classes=num_class,
-        pooling_attn_mask=True,
-        sample_weight_gamma=0.25,
-        num_transformer_feat_level=0,
-        # using stand-alone pixel decoder
-        positional_encoding=dict(
-            type='SinePositionalEncoding3D', num_feats=mask2former_pos_channel, normalize=True),
-        # using the original transformer decoder
-        transformer_decoder=dict(
-            type='DetrTransformerDecoder_custom',
-            return_intermediate=True,
-            num_layers=0,
-            transformerlayers=dict(
-                type='DetrTransformerDecoderLayer',
-                attn_cfgs=dict(
-                    type='MultiheadAttention',
-                    embed_dims=mask2former_feat_channel,
-                    num_heads=mask2former_num_heads,
-                    attn_drop=0.0,
-                    proj_drop=0.0,
-                    dropout_layer=None,
-                    batch_first=False),
-                ffn_cfgs=dict(
-                    embed_dims=mask2former_feat_channel,
-                    num_fcs=2,
-                    act_cfg=dict(type='ReLU', inplace=True),
-                    ffn_drop=0.0,
-                    dropout_layer=None,
-                    add_identity=True),
-                feedforward_channels=mask2former_feat_channel * 8,
-                operation_order=('cross_attn', 'norm', 'self_attn', 'norm',
-                                 'ffn', 'norm')),
-            init_cfg=None),
-        # loss settings
-        loss_cls=dict(
-            type='CrossEntropyLoss',
-            use_sigmoid=False,
-            loss_weight=2.0,
-            reduction='mean',
-            class_weight=[1.0] * num_class + [0.1]),
-        loss_mask=dict(
-            type='CrossEntropyLoss',
-            use_sigmoid=True,
-            reduction='mean',
-            loss_weight=5.0),
-        loss_dice=dict(
-            type='DiceLoss',
-            use_sigmoid=True,
-            activate=True,
-            reduction='mean',
-            naive_dice=True,
-            eps=1.0,
-            loss_weight=5.0),
+    # occ_head=dict(
+    #     type='Mask2FormerNuscOccHead',
+    #     feat_channels=mask2former_feat_channel,
+    #     out_channels=mask2former_output_channel,
+    #     num_queries=mask2former_num_queries,
+    #     num_occupancy_classes=num_class,
+    #     pooling_attn_mask=True,
+    #     sample_weight_gamma=0.25,
+    #     num_transformer_feat_level=0,
+    #     # using stand-alone pixel decoder
+    #     positional_encoding=dict(
+    #         type='SinePositionalEncoding3D', num_feats=mask2former_pos_channel, normalize=True),
+    #     # using the original transformer decoder
+    #     transformer_decoder=dict(
+    #         type='DetrTransformerDecoder_custom',
+    #         return_intermediate=True,
+    #         num_layers=0,
+    #         transformerlayers=dict(
+    #             type='DetrTransformerDecoderLayer',
+    #             attn_cfgs=dict(
+    #                 type='MultiheadAttention',
+    #                 embed_dims=mask2former_feat_channel,
+    #                 num_heads=mask2former_num_heads,
+    #                 attn_drop=0.0,
+    #                 proj_drop=0.0,
+    #                 dropout_layer=None,
+    #                 batch_first=False),
+    #             ffn_cfgs=dict(
+    #                 embed_dims=mask2former_feat_channel,
+    #                 num_fcs=2,
+    #                 act_cfg=dict(type='ReLU', inplace=True),
+    #                 ffn_drop=0.0,
+    #                 dropout_layer=None,
+    #                 add_identity=True),
+    #             feedforward_channels=mask2former_feat_channel * 8,
+    #             operation_order=('cross_attn', 'norm', 'self_attn', 'norm',
+    #                              'ffn', 'norm')),
+    #         init_cfg=None),
+    #     # loss settings
+    #     loss_cls=dict(
+    #         type='CrossEntropyLoss',
+    #         use_sigmoid=False,
+    #         loss_weight=2.0,
+    #         reduction='mean',
+    #         class_weight=[1.0] * num_class + [0.1]),
+    #     loss_mask=dict(
+    #         type='CrossEntropyLoss',
+    #         use_sigmoid=True,
+    #         reduction='mean',
+    #         loss_weight=5.0),
+    #     loss_dice=dict(
+    #         type='DiceLoss',
+    #         use_sigmoid=True,
+    #         activate=True,
+    #         reduction='mean',
+    #         naive_dice=True,
+    #         eps=1.0,
+    #         loss_weight=5.0),
         
-        point_cloud_range=point_cloud_range,
-        train_cfg=dict(
-            num_points=12544*3,
-            oversample_ratio=3.0,
-            importance_sample_ratio=0.75,
-            assigner=dict(
-                type='MaskHungarianAssigner',
-                cls_cost=dict(type='ClassificationCost', weight=2.0),
-                mask_cost=dict(
-                    type='CrossEntropyLossCost', weight=5.0, use_sigmoid=True),
-                dice_cost=dict(
-                    type='DiceCost', weight=5.0, pred_act=True, eps=1.0)),
-                sampler=dict(type='MaskPseudoSampler'),
-            ),
-        test_cfg=dict(
-                semantic_on=True,
-                panoptic_on=False,
-                instance_on=False),
-        loss_lovasz=True,
-        lovasz_loss_weight=1,
-        lovasz_flatten=True,
-        consider_visible_mask = True,
-        learned_pos_embed=True,
+    #     point_cloud_range=point_cloud_range,
+    #     train_cfg=dict(
+    #         num_points=12544*3,
+    #         oversample_ratio=3.0,
+    #         importance_sample_ratio=0.75,
+    #         assigner=dict(
+    #             type='MaskHungarianAssigner',
+    #             cls_cost=dict(type='ClassificationCost', weight=2.0),
+    #             mask_cost=dict(
+    #                 type='CrossEntropyLossCost', weight=5.0, use_sigmoid=True),
+    #             dice_cost=dict(
+    #                 type='DiceCost', weight=5.0, pred_act=True, eps=1.0)),
+    #             sampler=dict(type='MaskPseudoSampler'),
+    #         ),
+    #     test_cfg=dict(
+    #             semantic_on=True,
+    #             panoptic_on=False,
+    #             instance_on=False),
+    #     loss_lovasz=True,
+    #     lovasz_loss_weight=1,
+    #     lovasz_flatten=True,
+    #     consider_visible_mask = True,
+    #     learned_pos_embed=True,
 
-    ),
-    after_voxelize_add = True,
+    # ),
+    # after_voxelize_add = True,
     
     seg_head=dict(
         type='BEVSegmentationHead',
@@ -321,7 +319,7 @@ train_pipeline = [
         bda_aug_conf=bda_aug_conf,
         classes=class_names,
         is_train=True),
-    dict(type='LoadOccGTFromFile', ignore_nonvisible=True),
+    # dict(type='LoadOccGTFromFile'),
     dict(
         type='LoadPointsFromFile',
         coord_type='LIDAR',
@@ -332,8 +330,7 @@ train_pipeline = [
     dict(type='PointToMultiViewDepth', downsample=1, grid_config=grid_config),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
-        type='Collect3D', keys=['img_inputs', 'gt_depth', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera',
+        type='Collect3D', keys=['img_inputs', 'gt_depth',
                                 'gt_seg_mask'])
 ]
 
@@ -351,7 +348,6 @@ test_pipeline = [
         use_dim=5,
         file_client_args=file_client_args),
     dict(type='GenSegGT', root_path='data/nuscenes', grid_config=seg_grid_config, map_classes= map_classes),
-    dict(type='LoadOccGTFromFile'),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=(1333, 800),
@@ -362,8 +358,7 @@ test_pipeline = [
                 type='DefaultFormatBundle3D',
                 class_names=class_names,
                 with_label=False),
-            dict(type='Collect3D', keys=['points', 'img_inputs', 'voxel_semantics',
-                                'mask_lidar', 'mask_camera','gt_seg_mask'])
+            dict(type='Collect3D', keys=['points', 'img_inputs', 'gt_seg_mask'])
         ])
 ]
 
@@ -407,8 +402,7 @@ data = dict(
         use_valid_flag=True,
         # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
         # and box_type_3d='Depth' in sunrgbd and scannet dataset.
-        box_type_3d='LiDAR',
-        ),
+        box_type_3d='LiDAR'),
     val=test_data_config,
     test=test_data_config
     )
