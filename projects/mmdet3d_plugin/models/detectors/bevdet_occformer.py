@@ -167,7 +167,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                  
                  voxelize_patent_Z=False,
                  voxelize_patent_HW=False,
-                 time_check=False,
+                 time_check=True,
                  **kwargs):
         super(BEVDetOCC_depthGT_occformer, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
                                              img_bev_encoder_neck=img_bev_encoder_neck,**kwargs)

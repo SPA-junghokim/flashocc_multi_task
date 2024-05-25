@@ -146,16 +146,15 @@ model = dict(
         numC_input=numC_Trans + numC_Trans_cat,
         num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
     
-    img_bev_encoder_neck=dict(
-        type='FPN_LSS',
-        in_channels=numC_Trans * 8 + numC_Trans * 2,
-        out_channels=256), # 79.0360860006062
-    
     # img_bev_encoder_neck=dict(
-    #     type='LSSFPN2D',
-    #     in_channels=numC_Trans * 2+numC_Trans * 4+numC_Trans * 8,
-    #     out_channels=256), # 77.30187528385612
-
+    #     type='FPN_LSS',
+    #     in_channels=numC_Trans * 8 + numC_Trans * 2,
+    #     out_channels=256), # 79.0360860006062
+    
+    img_bev_encoder_neck=dict(
+        type='LSSFPN2D',
+        in_channels=numC_Trans * 2+numC_Trans * 4+numC_Trans * 8,
+        out_channels=256),
     
     occ_bev_encoder_neck=dict(
         type='Custom_FPN_LSS',
