@@ -91,7 +91,9 @@ model = dict(
         backbone_output_ids=[0, 1, 2]),
     img_bev_encoder_neck=dict(type='LSSFPN2D',
                               in_channels=numC_Trans*7,
-                              out_channels=256),
+                              out_channels=256,
+                              extra_upsample=False,
+                              ),
     # img_bev_encoder_backbone=dict(
     #     type='CustomResNet',
     #     numC_input=numC_Trans + numC_Trans_cat,

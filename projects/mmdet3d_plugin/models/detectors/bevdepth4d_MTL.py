@@ -337,7 +337,7 @@ class BEVDepth4D_MTL(BEVDepth4D):
             img_feats = self.depth_attn_downsample_conv(img_feats_depthattn)
             if self.pooling_head:
                 img_feats = img_feats.reshape(B,-1, self.grid_size[0],self.grid_size[1])
-                
+
         outs = self.occ_head(img_feats)
         # assert voxel_semantics.min() >= 0 and voxel_semantics.max() <= 17
         kwargs['bda'] = img_inputs[-1]
