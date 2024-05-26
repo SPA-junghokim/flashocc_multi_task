@@ -28,6 +28,9 @@ pip install trimesh==2.35.39
 pip install setuptools==59.5.0
 pip install yapf==0.40.1
 
+pip install timm==0.6.11
+pip install fairscale
+
 cd Path_to_FlashOcc
 git clone git@github.com:Yzichen/FlashOCC.git
 
