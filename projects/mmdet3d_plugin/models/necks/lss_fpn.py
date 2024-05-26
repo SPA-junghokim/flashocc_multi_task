@@ -79,8 +79,11 @@ class LSSFPN2D(nn.Module):
     def __init__(self,
                  in_channels,
                  out_channels,
+                 extra_upsample=2,
+                 norm_cfg=dict(type='BN'),
                  with_cp=False):
         super().__init__()
+        self.extra_upsample = extra_upsample
         self.up1 = nn.Upsample(
             scale_factor=2, mode='bilinear', align_corners=True)
         self.up2 = nn.Upsample(
@@ -97,6 +100,15 @@ class LSSFPN2D(nn.Module):
             norm_cfg=dict(type='BN2d', ),
             act_cfg=dict(type='ReLU', inplace=True))
         self.with_cp = with_cp
+        
+        if self.extra_upsample:
+            self.up3 = nn.Sequential(
+                nn.Upsample(scale_factor=extra_upsample, mode='bilinear', align_corners=True),
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+                build_norm_layer(norm_cfg, out_channels)[1],
+                nn.ReLU(inplace=True),
+                nn.Conv2d(out_channels, out_channels, kernel_size=1, padding=0)
+            )
 
     def forward(self, feats):
         """
@@ -117,6 +129,8 @@ class LSSFPN2D(nn.Module):
             x = checkpoint(self.conv, x)
         else:
             x = self.conv(x)    # (B, C, Dz, Dy, Dx)
+        if self.extra_upsample:
+            x = self.up3(x)     # (B, C_out, 2*H, 2*W)
         return x
 
 
