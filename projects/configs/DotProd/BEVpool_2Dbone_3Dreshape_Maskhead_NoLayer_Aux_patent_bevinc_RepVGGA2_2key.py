@@ -63,8 +63,8 @@ if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
 else:
     numC_Trans_cat = numC_Trans
+    
 model = dict(
-    # aux_test=True,
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
     type='BEVDetOCC_depthGT_occformer',
@@ -72,8 +72,9 @@ model = dict(
     grid_size = grid_size,
     voxel_out_channels = voxel_out_channels,
     only_last_layer=True,
-    vox_simple_reshape=True,
+    vox_simple_reshape=False,
     vox_aux_loss_3d=True,
+    
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
         in_dim=voxel_out_channels,
@@ -93,20 +94,30 @@ model = dict(
     ),
     
     img_backbone=dict(
-        type='ResNet',
-        depth=50,
-        num_stages=4,
+        # type='ResNet',
+        # depth=50,
+        # num_stages=4,
+        # out_indices=(2, 3),
+        # frozen_stages=-1,
+        # norm_cfg=dict(type='BN', requires_grad=True),
+        # norm_eval=False,
+        # with_cp=True,
+        # style='pytorch',
+        # pretrained='torchvision://resnet50',
+        type='RepVGG',
+        pretrained='ckpts/RepVGG-A2-train.pth',
+        num_blocks=[2, 4, 14, 1], 
+        # width_multiplier=[2.,2.,4.,4.], 
+        width_multiplier=[1.5, 1.5, 1.5, 2.75], 
+        override_groups_map=None, 
         out_indices=(2, 3),
-        frozen_stages=-1,
-        norm_cfg=dict(type='BN', requires_grad=True),
-        norm_eval=False,
-        with_cp=True,
-        style='pytorch',
-        pretrained='torchvision://resnet50',
+        deploy=False, 
+        use_checkpoint=True,
     ),
     img_neck=dict(
         type='CustomFPN',
-        in_channels=[1024, 2048],
+        # in_channels=[1024, 2048],
+        in_channels=[384, 1408],
         out_channels=256,
         num_outs=1,
         start_level=0,
@@ -124,7 +135,7 @@ model = dict(
         ),
     # down_sample_for_3d_pooling=[numC_Trans*grid_size[2], numC_Trans],
     img_bev_encoder_backbone=dict(
-        type='CustomResNet',
+        type='CustomResNet_inc',
         numC_input=numC_Trans + numC_Trans_cat,
         num_channels=[numC_Trans * 2, numC_Trans * 4, numC_Trans * 8]),
     
@@ -389,8 +400,8 @@ lr_config = dict(
     warmup='linear',
     warmup_iters=200,
     warmup_ratio=0.001,
-    step=[12, ])
-runner = dict(type='EpochBasedRunner', max_epochs=12)
+    step=[24, ])
+runner = dict(type='EpochBasedRunner', max_epochs=24)
 
 custom_hooks = [
     dict(
@@ -402,8 +413,8 @@ custom_hooks = [
 
 # load_from = "ckpts/bevdet-r50-cbgs.pth"
 # fp16 = dict(loss_scale='dynamic')
-evaluation = dict(interval=3, start=12, pipeline=test_pipeline)
-checkpoint_config = dict(interval=3, max_keep_ckpts=5)
+evaluation = dict(interval=1, start=24, pipeline=test_pipeline)
+checkpoint_config = dict(interval=1, max_keep_ckpts=5)
 
 
 log_config = dict(
