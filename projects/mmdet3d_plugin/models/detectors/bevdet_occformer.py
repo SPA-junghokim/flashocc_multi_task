@@ -295,14 +295,16 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         if self.imgfeat_32x88:
             self.neck_upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
             self.reduce_conv_neck = nn.Conv2d(512 + kwargs['img_neck']['out_channels'] , kwargs['img_neck']['out_channels'], 1)
-        
-        self.voxelize_module = voxelize_module(
-            after_voxelize_add = after_voxelize_add,
-            in_dim=voxel_out_channels,
-            only_last_layer=only_last_layer,
-            vox_simple_reshape=vox_simple_reshape,
-            voxelize_patent_Z=voxelize_patent_Z,
-            voxelize_patent_HW=voxelize_patent_HW,)
+            
+        if self.occ_head is not None:
+            
+            self.voxelize_module = voxelize_module(
+                after_voxelize_add = after_voxelize_add,
+                in_dim=voxel_out_channels,
+                only_last_layer=only_last_layer,
+                vox_simple_reshape=vox_simple_reshape,
+                voxelize_patent_Z=voxelize_patent_Z,
+                voxelize_patent_HW=voxelize_patent_HW,)
         
             
         self.bev_neck_deform = bev_neck_deform
@@ -792,11 +794,14 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
         bev_feat = torch.cat(bev_feat_list, dim=1)      # (B, N_frames*C, Dy, Dx)
         
         det_bev, occ_bev, seg_bev = self.bev_encoder(bev_feat) # (B, 48, 200, 200) / (B, 48, 200, 200) x 4 / (B, 48, 200, 200) x 4
-        # breakpoint()
+        
         occ_bev_out = []
         for b in occ_bev:
             occ_bev_out.append(b.clone())
-        occ_vox = self.voxelize_module(occ_bev) # (B, 48, 200, 200, 16) & (B, 48, 200, 200) x 3
+        if self.occ_head is not None:
+            occ_vox = self.voxelize_module(occ_bev) # (B, 48, 200, 200, 16) & (B, 48, 200, 200) x 3
+        else:
+            occ_vox = None
 
         return [det_bev, occ_bev_out, occ_vox, seg_bev], depth_list[0], trans_feat_list[0], bev_feat
 
@@ -846,7 +851,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
             det_bev = det_bev[0]
         # if type(occ_bev) in [list, tuple]:
         #     occ_bev = occ_bev[0]
-        if type(x) in [list, tuple]:
+        if type(seg_bev) in [list, tuple]:
             seg_bev = seg_bev[0]
         return [det_bev, occ_bev, seg_bev]
 

@@ -119,6 +119,7 @@ model = dict(
         ),
         sololoss=True,
         loss_weight=10,
+        z_embeding=True,
     ),
     det_loss_weight = 1,
     occ_loss_weight = 1,
