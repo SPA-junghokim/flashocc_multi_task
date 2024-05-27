@@ -864,7 +864,7 @@ def main():
         if samples_per_gpu > 1:
             for ds_cfg in cfg.data.test:
                 ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
-
+    breakpoint()
     test_loader_cfg = {
         **test_dataloader_default_args,
         **cfg.data.get('test_dataloader', {})
