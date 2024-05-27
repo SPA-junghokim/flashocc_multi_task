@@ -43,7 +43,8 @@ class CustomTriResV3(nn.Module):
                 builder.build_neck(img_bev_encoder_neck))
         self.out = out_enc
         if out_enc:
-            if out_channel is not None:
+            if out_channel is None:
+            # if out_channel is not None:
                 out_channel = self.channels
             self.out_enc = nn.Sequential(
                 nn.Conv3d(self.channels, out_channel, kernel_size=1),
