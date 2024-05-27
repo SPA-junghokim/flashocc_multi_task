@@ -27,6 +27,7 @@ class voxelize_module(nn.Module):
             vox_simple_reshape=False,
             voxelize_patent_Z=False,
             voxelize_patent_HW=False,
+            voxelize_sogdet=False,
     ):
         super(voxelize_module, self).__init__()
         self.bev_h_list = bev_h_list
@@ -46,7 +47,7 @@ class voxelize_module(nn.Module):
         
         self.voxelize_patent_Z = voxelize_patent_Z
         self.voxelize_patent_HW = voxelize_patent_HW
-        
+        self.voxelize_sogdet = voxelize_sogdet
         if self.only_last_layer:
             if self.vox_simple_reshape:
                 self.linear = nn.Sequential(
@@ -60,6 +61,9 @@ class voxelize_module(nn.Module):
                 elif self.voxelize_patent_HW:
                     self.zembedding_linear = nn.Linear(in_dim, self.bev_z_list[0]*in_dim)
                     self.avg_pool = nn.AvgPool2d((self.bev_h_list[0], self.bev_w_list[0]))
+                    
+                elif self.voxelize_sogdet:
+                    self.z_embeding = nn.Embedding(self.bev_z_list[0], in_dim)
                 else:
                     self.linear = nn.Linear(in_dim, self.bev_z_list[0])
                     self.zembedding_linear = nn.Linear(in_dim, self.bev_z_list[0]*in_dim)
@@ -90,6 +94,8 @@ class voxelize_module(nn.Module):
                     pooled_feat = self.avg_pool(x[0]).squeeze()
                     zembedding = self.sig(self.zembedding_linear(pooled_feat).reshape(bs, -1, self.bev_z_list[0]))
                     x[0] = x[0][...,None] * zembedding[:, :, None, None, :] # [[B, 256, 200, 200, 16]
+                elif self.voxelize_sogdet:
+                    x[0] = x[0][...,None] * self.z_embeding.weight.permute(1, 0)[None, :, None, None, :] # [[B, 256, 200, 200, 16]
                 else:
                     attn_weight = self.sig(self.linear(x[0].permute(0,2,3,1)))[:,None]
                     pooled_feat = self.avg_pool(x[0]).squeeze()
@@ -167,6 +173,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                  
                  voxelize_patent_Z=False,
                  voxelize_patent_HW=False,
+                 voxelize_sogdet=False,
                  time_check=False,
                  **kwargs):
         super(BEVDetOCC_depthGT_occformer, self).__init__(pts_bbox_head=pts_bbox_head, img_bev_encoder_backbone=img_bev_encoder_backbone,
@@ -304,7 +311,8 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                 only_last_layer=only_last_layer,
                 vox_simple_reshape=vox_simple_reshape,
                 voxelize_patent_Z=voxelize_patent_Z,
-                voxelize_patent_HW=voxelize_patent_HW,)
+                voxelize_patent_HW=voxelize_patent_HW,
+                voxelize_sogdet=voxelize_sogdet,)
         
             
         self.bev_neck_deform = bev_neck_deform
