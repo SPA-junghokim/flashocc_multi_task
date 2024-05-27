@@ -163,7 +163,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
                  aux_bev2occ_head=None,                 
                  only_non_empty_voxel_dot = False,
                  
-                 test_merge=True,
+                 test_merge=False,
                  
                  voxelize_patent_Z=False,
                  voxelize_patent_HW=False,
@@ -798,7 +798,7 @@ class BEVDetOCC_depthGT_occformer(BEVDepth4D):
             occ_bev_out.append(b.clone())
         occ_vox = self.voxelize_module(occ_bev) # (B, 48, 200, 200, 16) & (B, 48, 200, 200) x 3
 
-        return [det_bev, occ_bev_out, occ_vox, seg_bev], depth, trans_feat_list[0], bev_feat
+        return [det_bev, occ_bev_out, occ_vox, seg_bev], depth_list[0], trans_feat_list[0], bev_feat
 
     @force_fp32()
     def bev_encoder(self, x):

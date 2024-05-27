@@ -163,7 +163,7 @@ class BEVDetOCC_depthGT_occformer_BEVaux(BEVDepth4D):
                  bevbackbone_vox_simple_reshape=False,
                  only_non_empty_voxel_dot = False,
                  
-                 test_merge=True,
+                 test_merge=False,
         
                  time_check=False,
                  **kwargs):

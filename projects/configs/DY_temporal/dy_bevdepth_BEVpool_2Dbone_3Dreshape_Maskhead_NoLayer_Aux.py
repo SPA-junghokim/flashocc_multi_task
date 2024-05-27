@@ -59,13 +59,12 @@ mask2former_pos_channel_bev = mask2former_feat_channel / 2 # divided by ndim
 mask2former_num_heads = 8
 
 multi_adj_frame_id_cfg = (1, 1+1, 1)
-
 if len(range(*multi_adj_frame_id_cfg)) == 0:
     numC_Trans_cat = 0
 else:
     numC_Trans_cat = numC_Trans
-    
 model = dict(
+    # aux_test=True,
     align_after_view_transfromation=False,
     num_adj=len(range(*multi_adj_frame_id_cfg)),
     type='BEVDetOCC_depthGT_occformer',
@@ -75,7 +74,6 @@ model = dict(
     only_last_layer=True,
     vox_simple_reshape=True,
     vox_aux_loss_3d=True,
-    
     vox_aux_loss_3d_occ_head=dict(
         type='BEVOCCHead3D',
         in_dim=voxel_out_channels,
@@ -308,7 +306,7 @@ train_pipeline = [
 ]
 
 test_pipeline = [
-    dict(type='PrepareImageInputs', data_config=data_config, sequential=False),
+    dict(type='PrepareImageInputs', data_config=data_config, sequential=True),
     dict(
         type='LoadAnnotationsBEVDepth',
         bda_aug_conf=bda_aug_conf,
