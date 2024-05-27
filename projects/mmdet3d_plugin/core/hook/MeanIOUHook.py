@@ -403,7 +403,6 @@ def multi_gpu_test(model: nn.Module,
             use_lidar_mask=False,
             use_image_mask=True)
     for i, data in enumerate(data_loader):
-        breakpoint()
         with torch.no_grad():
             result, voxel_out, gt_semantics, mask_lidar, mask_camera, seg_out, gt_seg_mask =\
                 model(return_loss=False, return_vox_results=True, **data) #return_vox_results=True,
