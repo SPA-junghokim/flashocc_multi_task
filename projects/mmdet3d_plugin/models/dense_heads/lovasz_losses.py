@@ -44,7 +44,8 @@ def lovasz_softmax_occ(probas, labels, classes='present', per_image=False, ignor
                             for prob, lab in zip(probas, labels))
         else:
             loss = lovasz_softmax_flat(*flatten_probas(probas, labels, ignore), classes=classes)
-    return [loss]
+    return loss
+    # return [loss]
 
 def lovasz_softmax(probas, labels, classes='present', per_image=False, ignore=None):
     """
