@@ -194,6 +194,7 @@ class BEVOCCHead2D(BaseModule):
                  z_embeding_v2=False,
                  channel_down_for_3d=False,
                  reshape_3d_head=False,
+                 downsample_ch=True,
                  ):
         super(BEVOCCHead2D, self).__init__()
         self.in_dim = in_dim

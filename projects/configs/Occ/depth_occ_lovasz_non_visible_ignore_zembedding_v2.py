@@ -91,7 +91,7 @@ model = dict(
     occ_head=dict(
         type='BEVOCCHead2D',
         in_dim=256,
-        out_dim=256,
+        out_dim=64,
         Dz=16,
         use_mask=True,
         num_classes=18,
@@ -106,7 +106,6 @@ model = dict(
         sololoss=True,
         loss_weight=10,
         z_embeding = True,
-        z_embeding_v2=True,
     ),
     det_loss_weight = 1,
     occ_loss_weight = 1,
