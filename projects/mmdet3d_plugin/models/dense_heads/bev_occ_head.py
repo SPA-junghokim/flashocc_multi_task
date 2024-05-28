@@ -191,7 +191,9 @@ class BEVOCCHead2D(BaseModule):
                  weight=[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0],
                  loss_weight=1,
                  z_embeding=False,
+                 z_embeding_v2=False,
                  channel_down_for_3d=False,
+                 reshape_3d_head=False,
                  ):
         super(BEVOCCHead2D, self).__init__()
         self.in_dim = in_dim
@@ -240,10 +242,23 @@ class BEVOCCHead2D(BaseModule):
         else:
             self.loss_occ = build_loss(loss_occ)
         
-        
         self.z_embeding = z_embeding
         if self.z_embeding:
             self.z_embeding = nn.Embedding(self.Dz, self.out_dim)
+            self.predicter = nn.Sequential(
+                nn.Conv3d(self.out_dim, self.out_dim//2, kernel_size=3, dilation=2, padding=2),
+                nn.BatchNorm3d(self.out_dim//2),
+                nn.Conv3d(self.out_dim//2, self.out_dim//4, kernel_size=3, padding=1),
+                nn.BatchNorm3d(self.out_dim//4),
+                nn.Conv3d(self.out_dim//4, num_classes, 1)
+            )
+            if z_embeding_v2:
+                self.final_conv = nn.Identity()
+                
+        self.reshape_3d_head = reshape_3d_head
+        if self.reshape_3d_head:
+            self.final_conv = nn.Identity()
+            self.reshaper = nn.Conv2d(self.out_dim, self.out_dim*self.Dz,1)
             self.predicter = nn.Sequential(
                 nn.Conv3d(self.out_dim, self.out_dim//2, kernel_size=3, dilation=2, padding=2),
                 nn.BatchNorm3d(self.out_dim//2),
@@ -270,6 +285,11 @@ class BEVOCCHead2D(BaseModule):
             occ_pred = occ_pred[..., None] + self.z_embeding.weight.permute(1, 0)[None, :, None, None, :]
             # occ_pred = self.predicter(occ_pred).permute(0,2,3,4,1) # 2024-03-28 Thur 22:46 : mIoU 24.45% mistake of permute, below is correct...
             occ_pred = self.predicter(occ_pred).permute(0,3,2,4,1)
+        elif self.reshape_3d_head:
+            B, C, H, W = img_feats.shape
+            occ_pred = self.final_conv(img_feats).permute(0, 3, 2, 1)
+            occ_pred = self.reshaper(occ_pred.permute(0,3,1,2)).reshape(B, C, -1, H, W)
+            occ_pred = self.predicter(occ_pred).permute(0,3,4,2,1)
         elif self.use_predicter:
             occ_pred = self.final_conv(img_feats).permute(0, 3, 2, 1)
             bs, Dx, Dy = occ_pred.shape[:3]
