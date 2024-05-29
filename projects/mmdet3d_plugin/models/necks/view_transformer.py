@@ -1056,7 +1056,8 @@ class CRN_LSS(LSSViewTransformer):
                  dpeht_render_loss=False, variance_focus=0.85, render_loss_depth_weight=1,
                  depth_loss_ce = True, depth_loss_focal=False, context_residual=False,
                  depth_render_sigmoid=False, segmentation_loss=False, loss_segmentation_weight=1, use_depth_threhold=False, 
-                 depth_threshold=1,LSS_Rendervalue=False, **kwargs):
+                 depth_threshold=1,LSS_Rendervalue=False, depth_ASPP=False,
+                 **kwargs):
         super(CRN_LSS, self).__init__(**kwargs)
         self.loss_depth_weight = loss_depth_weight
         self.loss_semantic_weight = loss_semantic_weight
@@ -1072,6 +1073,7 @@ class CRN_LSS(LSSViewTransformer):
         self.depth_loss_focal = depth_loss_focal
         self.use_depth_threhold = use_depth_threhold
         self.LSS_Rendervalue = LSS_Rendervalue
+        self.depth_ASPP = depth_ASPP
         
         if self.depth_loss_focal:
             self.depth_focalloss = build_loss(dict(type="FocalLoss"))
@@ -1099,12 +1101,20 @@ class CRN_LSS(LSSViewTransformer):
                         nn.Conv2d(self.out_channels * 2, 18, kernel_size=1, stride=1)
                         )
         
-        self.depth_net = CRN_DepthNet(
-            in_channels=self.in_channels,
-            mid_channels=self.in_channels,
-            context_channels=self.out_channels,
-            depth_channels=self.depth_channels,
-            )
+        if self.depth_ASPP:
+            self.depth_net = DepthNet(
+                in_channels=self.in_channels,
+                mid_channels=self.in_channels,
+                context_channels=self.out_channels,
+                depth_channels=self.depth_channels,
+                **depthnet_cfg)
+        else:
+            self.depth_net = CRN_DepthNet(
+                in_channels=self.in_channels,
+                mid_channels=self.in_channels,
+                context_channels=self.out_channels,
+                depth_channels=self.depth_channels,
+                )
         # self.register_buffer(
         #     'voxel_size',
         #     torch.Tensor([row[2] for row in [x_bound, y_bound, z_bound]]))
